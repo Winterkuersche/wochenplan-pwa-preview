@@ -38,6 +38,30 @@ jobs:
           cp planung-2/planung2-preview.html planung-2/index.html
           rm -rf source
 
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('planung-2/index.html')
+          text = path.read_text()
+          marker = '<script src="./holidays.js"></script>'
+          diagnostic = '''<script>
+          window.addEventListener('error', function (event) {
+            const id = 'previewRuntimeError';
+            let box = document.getElementById(id);
+            if (!box) {
+              box = document.createElement('div');
+              box.id = id;
+              box.style.cssText = 'margin:10px;padding:10px;border:1px solid #b42318;border-radius:10px;background:#3a1717;color:#fff;font:12px/1.4 monospace;white-space:pre-wrap';
+              const app = document.querySelector('.app');
+              if (app) app.prepend(box);
+            }
+            box.textContent = 'JS-Fehler: ' + (event.message || 'unbekannt') + '\\n' + (event.filename || '') + ':' + (event.lineno || '') + ':' + (event.colno || '');
+          });
+          </script>\n'''
+          if marker in text and 'previewRuntimeError' not in text:
+              text = text.replace(marker, diagnostic + marker, 1)
+          path.write_text(text)
+          PY
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add planung-2
