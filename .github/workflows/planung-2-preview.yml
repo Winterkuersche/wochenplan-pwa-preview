@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout preview repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Checkout Planung 2
         uses: actions/checkout@v4
@@ -41,4 +43,7 @@ jobs:
           git add planung-2
           git diff --cached --quiet && exit 0
           git commit -m "Update Planung 2 preview"
-          git push
+
+          git fetch origin main
+          git rebase origin/main
+          git push origin main
