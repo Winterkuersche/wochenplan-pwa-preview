@@ -1,0 +1,61 @@
+name: Publish PR previews
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Build preview site from open PRs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          touch _site/.nojekyll
+
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="de">
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Wochenplan PR Previews</title></head>
+          <body style="font-family:system-ui,-apple-system,sans-serif;padding:24px;line-height:1.5">
+            <h1>Wochenplan PR Previews</h1>
+            <p>Teststände liegen unter <code>/pr-NUMMER/</code>.</p>
+          </body>
+          </html>
+          HTML
+
+          curl -fsSL 'https://api.github.com/repos/Winterkuersche/wochenplan-pwa/pulls?state=open&per_page=100' -o pulls.json
+          jq -r '.[] | [.number, .head.sha] | @tsv' pulls.json | while IFS=$'\t' read -r number sha; do
+            echo "Building PR #${number} (${sha})"
+            dest="_site/pr-${number}"
+            mkdir -p "$dest"
+            curl -fsSL -L "https://api.github.com/repos/Winterkuersche/wochenplan-pwa/tarball/${sha}" | tar -xz --strip-components=1 -C "$dest"
+            rm -rf "$dest/.github" "$dest/tests" "$dest/tools"
+          done
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
