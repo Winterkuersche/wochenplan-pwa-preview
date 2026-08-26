@@ -50,12 +50,29 @@ jobs:
             test -d "$dest"
             echo "Preview directory exists: $dest"
 
-            # PR previews are intentionally added as a separate HTML file so the
-            # live app's index.html stays untouched. Make that file the preview
-            # entry point only inside the generated Pages artifact.
+            # Keep the preview at its original URL.  Loading a copy as index.html
+            # changes location.pathname, so filename-based preview bootstrapping
+            # (including the isolated storage setup) is skipped even though the
+            # copied markup itself looks correct.
             if [[ -f "$dest/planung2-preview.html" ]]; then
               echo "Preview file exists: $dest/planung2-preview.html"
-              cp "$dest/planung2-preview.html" "$dest/index.html"
+              cat > "$dest/index.html" <<'HTML'
+          <!doctype html>
+          <html lang="de">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="robots" content="noindex">
+            <title>Planung 2 Preview</title>
+            <script>
+              location.replace(`./planung2-preview.html${location.search}${location.hash}`);
+            </script>
+          </head>
+          <body>
+            <p><a href="./planung2-preview.html">Planung-2-Preview öffnen</a></p>
+          </body>
+          </html>
+          HTML
             else
               echo "Preview file does not exist: $dest/planung2-preview.html"
             fi
