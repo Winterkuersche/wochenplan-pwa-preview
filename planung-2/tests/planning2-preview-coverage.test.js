@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const { loadScripts } = require('./test-helpers');
 
 const preview = fs.readFileSync('planung2-preview.html', 'utf8');
 
@@ -37,7 +38,7 @@ function loadCoverage(resolvedByEmployee) {
     }
   });
   vm.runInContext(
-    `${extractFunction('coverage')};this.coverage=coverage`,
+    `${extractFunction('resolvePlanDay')};${extractFunction('resolvedShiftTimes')};${extractFunction('coverage')};this.coverage=coverage`,
     context
   );
   return { coverage: context.coverage, calls };
@@ -66,6 +67,105 @@ test('coverage uses every employee resolved shift and refreshes after a changed 
   assert.equal(calls[0].isoDate, '2026-08-27');
   assert.equal(calls[0].schedule, plan.schedule);
   assert.equal(calls[0].absences, plan.absences);
+});
+
+test('persisted planning 2 edit is the entry used by coverage on the next render', () => {
+  const dayIso = '2026-08-27';
+  const employees = [{ id: 'opener' }, { id: 'early' }, { id: 'late' }];
+  const stored = new Map();
+  const renderedCoverage = [];
+  const renderedLateCells = [];
+  const editorFields = {
+    editType: { value: 'L' },
+    editStart: { value: '14:00' },
+    editEnd: { value: '19:00' },
+    editCheckout: { value: '19:00' },
+    editBranch: { value: '' }
+  };
+  const realResolution = loadScripts([
+    'holidays.js',
+    'time-utils.js',
+    'shift-rules.js',
+    'date-utils.js',
+    'shift-utils.js',
+    'status-utils.js',
+    'absences.js',
+    'day-resolution.js'
+  ]);
+  const context = vm.createContext({
+    TEST_PLAN: 'planning-2-test-plan',
+    LIVE_PLAN: 'live-plan',
+    localStorage: {
+      getItem: (key) => stored.get(key) ?? null,
+      setItem: (key, value) => stored.set(key, value)
+    },
+    iso: (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    mins: (value) => {
+      const [hours, minutes] = value.split(':').map(Number);
+      return hours * 60 + minutes;
+    },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`,
+    getResolvedDayEntry: realResolution.getResolvedDayEntry,
+    document: { getElementById: (id) => editorFields[id] },
+    toast: () => {},
+    closeEditor: () => {}
+  });
+
+  vm.runInContext([
+    extractFunction('load'),
+    extractFunction('save'),
+    extractFunction('clone'),
+    extractFunction('getTestPlan'),
+    extractFunction('pauseFor'),
+    extractFunction('removeAbsenceDay'),
+    extractFunction('clearDay'),
+    extractFunction('putEntry'),
+    extractFunction('makeShift'),
+    extractFunction('resolvePlanDay'),
+    extractFunction('resolvedShiftTimes'),
+    extractFunction('coverage'),
+    extractFunction('cell'),
+    extractFunction('persist'),
+    extractFunction('saveCustom'),
+    `editing={eid:'late',dayIso:'${dayIso}'}`,
+    `render=()=>{const plan=getTestPlan(),day=new Date(2026,7,27),resolved=resolvePlanDay(plan,employees[2],day);renderedCoverage.push(Array.from(coverage(employees,plan,day)));renderedLateCells.push(Array.from(cell(resolved)))}`,
+    'this.api={getTestPlan,saveCustom}'
+  ].join(';'), context);
+  context.employees = employees;
+  context.renderedCoverage = renderedCoverage;
+  context.renderedLateCells = renderedLateCells;
+
+  stored.set('planning-2-test-plan', JSON.stringify({
+    schedule: {
+      [dayIso]: {
+        opener: { type: 'shift', start: '08:55', end: '19:10' },
+        early: { type: 'shift', start: '09:00', end: '18:00' },
+        late: { type: 'shift', status: 'work', code: 'L', shiftKey: 'L', mode: 'late', start: 'L', end: '14:00' }
+      }
+    },
+    absences: []
+  }));
+
+  vm.runInContext('render()', context);
+  assert.deepEqual(Array.from(renderedCoverage[0]), [false, '18:00–19:10 <2']);
+  const legacyResolved = realResolution.getResolvedDayEntry({
+    employee: employees[2],
+    isoDate: dayIso,
+    schedule: context.api.getTestPlan().schedule,
+    absences: [],
+    stateKey: 'schleswig-holstein'
+  });
+  assert.equal(legacyResolved.sourceEntry.start, 'L');
+  assert.equal(legacyResolved.sourceEntry.end, '14:00');
+
+  assert.equal(vm.runInContext("JSON.stringify(editing)", context), JSON.stringify({ eid: 'late', dayIso }));
+  assert.equal(vm.runInContext("document.getElementById('editStart').value", context), '14:00');
+  vm.runInContext("saveCustom()", context);
+
+  assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.start, '14:00');
+  assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.end, '19:00');
+  assert.deepEqual(Array.from(renderedLateCells[1]), ['14:00–19:00', 'L', 'shift']);
+  assert.deepEqual(Array.from(renderedCoverage[1]), [true, '✓ Besetzung']);
 });
 
 test('coverage excludes resolved non-working states including external help', () => {
