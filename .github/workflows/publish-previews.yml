@@ -46,7 +46,27 @@ jobs:
             mkdir -p "$dest"
             curl -fsSL -L "https://api.github.com/repos/Winterkuersche/wochenplan-pwa/tarball/${sha}" | tar -xz --strip-components=1 -C "$dest"
             rm -rf "$dest/.github" "$dest/tests" "$dest/tools"
+
+            test -d "$dest"
+            echo "Preview directory exists: $dest"
+
+            # PR previews are intentionally added as a separate HTML file so the
+            # live app's index.html stays untouched. Make that file the preview
+            # entry point only inside the generated Pages artifact.
+            if [[ -f "$dest/planung2-preview.html" ]]; then
+              echo "Preview file exists: $dest/planung2-preview.html"
+              cp "$dest/planung2-preview.html" "$dest/index.html"
+            else
+              echo "Preview file does not exist: $dest/planung2-preview.html"
+            fi
+
+            echo "Published HTML files for PR #${number}:"
+            find "$dest" -maxdepth 1 -type f -name '*.html' -printf '%f\n' | sort
+            test -f "$dest/index.html"
           done
+
+          echo "HTML files immediately before upload:"
+          find _site -type f -name '*.html' -print | sort
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
