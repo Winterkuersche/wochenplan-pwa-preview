@@ -1097,6 +1097,7 @@ const topToolbarEl = document.getElementById("topToolbar");
 const btnResetWeekEl = document.getElementById("btnResetWeek");
 const btnExportBackupEl = document.getElementById("btnExportBackup");
 const btnImportBackupEl = document.getElementById("btnImportBackup");
+const btnExportPlanning2El = document.getElementById("btnExportPlanning2");
 const backupFileInputEl = document.getElementById("backupFileInput");
 let isReconcilingMepEarlyStartForActiveMonth = false;
 const backupInfoEl = document.getElementById("backupInfo");
@@ -2491,19 +2492,59 @@ function collectFullBackupSnapshot() {
   };
 }
 
-function triggerBackupDownload(snapshot) {
+function triggerBackupDownload(snapshot, filename = `wochenplan-backup-${formatIsoDateForFileName()}.json`) {
   const payload = JSON.stringify(snapshot, null, 2);
   const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = `wochenplan-backup-${formatIsoDateForFileName()}.json`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
 
   URL.revokeObjectURL(url);
+}
+
+function collectPlanning2TransferSnapshot() {
+  const planData = loadJson(PLAN_KEY, defaultPlanState());
+  if (planData && typeof planData === "object") delete planData.salesByDate;
+
+  return {
+    format: "wochenplan-planning2-transfer",
+    version: 1,
+    createdAt: new Date().toISOString(),
+    master: loadJson(MASTER_KEY, defaultMasterState()),
+    plan: planData
+  };
+}
+
+async function exportPlanning2Transfer() {
+  try {
+    flushPendingAutoSave();
+    saveAppState();
+    const snapshot = collectPlanning2TransferSnapshot();
+    const filename = `wochenplan-planung-2-${formatIsoDateForFileName()}.json`;
+    const file = typeof File === "function"
+      ? new File([JSON.stringify(snapshot, null, 2)], filename, { type: "application/json" })
+      : null;
+
+    if (file && navigator.share && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({
+        title: "Planung-2-Testdaten",
+        text: "Stammdaten und aktueller Plan für Planung 2",
+        files: [file]
+      });
+      return;
+    }
+
+    triggerBackupDownload(snapshot, filename);
+    alert("Planung-2-Testdaten wurden exportiert. Öffne Planung 2 und wähle dort „Testdaten übernehmen“.");
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    alert("Planung-2-Testdaten konnten nicht bereitgestellt werden.");
+  }
 }
 
 function exportBackup() {
@@ -3784,6 +3825,10 @@ btnOverviewUploadEl?.addEventListener("click", async () => {
 
 btnExportBackupEl?.addEventListener("click", () => {
   exportBackup();
+});
+
+btnExportPlanning2El?.addEventListener("click", async () => {
+  await exportPlanning2Transfer();
 });
 
 btnImportBackupEl?.addEventListener("click", () => {
