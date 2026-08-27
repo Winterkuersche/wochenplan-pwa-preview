@@ -36,7 +36,7 @@ const entry = (type, minutesForMonth = 0) => ({ type, minutesForMonth });
 test('only a resolved regular off day satisfies the normal employee free-day rule', () => {
   const api = loadApi();
   const employee = { id: 'normal', roleKey: 'TZ', target: '30:00' };
-  for (const type of ['vacation', 'sick', 'external-help']) {
+  for (const type of ['vacation', 'sick', 'holiday', 'external-help']) {
     const resolved = Array.from({ length: 6 }, () => entry('shift', 300));
     resolved[2] = entry(type);
     const status = api.getPlanning2EmployeeFreeDayStatus(employee, days, resolved);
