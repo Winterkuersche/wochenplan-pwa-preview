@@ -38,10 +38,10 @@ function loadCoverage(resolvedByEmployee) {
     }
   });
   vm.runInContext(
-    `${extractFunction('resolvePlanDay')};${extractFunction('resolvedShiftTimes')};${extractFunction('evaluateResolvedDayCoverage')};${extractFunction('coverage')};this.coverage=coverage`,
+    `${extractFunction('resolvePlanDay')};${extractFunction('resolvedShiftTimes')};${extractFunction('evaluateResolvedDayCoverage')};${extractFunction('coverage')};this.coverage=coverage;this.evaluate=evaluateResolvedDayCoverage`,
     context
   );
-  return { coverage: context.coverage, calls };
+  return { coverage: context.coverage, evaluate: context.evaluate, calls };
 }
 
 function shift(start, end) {
@@ -59,7 +59,7 @@ test('coverage uses every employee resolved shift and refreshes after a changed 
   const plan = { schedule: {}, absences: [] };
   const day = new Date(2026, 7, 27);
 
-  assert.deepEqual(Array.from(coverage(employees, plan, day)), [false, '19:10: zweite Person fehlt']);
+  assert.deepEqual(Array.from(coverage(employees, plan, day)), [false, 'Unterbesetzung · 19:00–19:10']);
 
   resolved.late = shift('15:00', '19:10');
   assert.deepEqual(Array.from(coverage(employees, plan, day)), [true, '✓ Besetzung']);
@@ -166,7 +166,7 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   }));
 
   vm.runInContext('render()', context);
-  assert.deepEqual(Array.from(renderedCoverage[0]), [false, '19:10: zweite Person fehlt']);
+  assert.deepEqual(Array.from(renderedCoverage[0]), [false, 'Unterbesetzung · 19:00–19:10']);
   const legacyResolved = realResolution.getResolvedDayEntry({
     employee: employees[2],
     isoDate: dayIso,
@@ -199,7 +199,7 @@ test('coverage excludes resolved non-working states including external help', ()
 
   assert.deepEqual(
     Array.from(coverage(employees, { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
-    [false, '19:10: zweite Person fehlt']
+    [false, 'Unterbesetzung · 9:00–19:10']
   );
 });
 
@@ -212,15 +212,15 @@ test('coverage prioritizes a missing 08:55 opener', () => {
 
   assert.deepEqual(
     Array.from(coverage([{ id: 'first' }, { id: 'second' }], { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
-    [false, '08:55 fehlt']
+    [false, 'Unterbesetzung · 8:55–9:00']
   );
 });
 
 test('coverage identifies morning, afternoon, and evening understaffing', () => {
   const cases = [
-    ['Vormittag', '09:00', '10:05', 'Unterbesetzung am Vormittag · 9:00–10:05 <2'],
-    ['Nachmittag', '13:00', '14:05', 'Unterbesetzung am Nachmittag · 13:00–14:05 <2'],
-    ['Abend', '18:00', '19:10', '19:10: zweite Person fehlt']
+    ['Vormittag', '09:00', '10:05', 'Unterbesetzung · 9:00–10:05'],
+    ['Nachmittag', '13:00', '14:05', 'Unterbesetzung · 13:00–14:05'],
+    ['Abend', '18:00', '19:10', 'Unterbesetzung · 19:00–19:10']
   ];
 
   for (const [section, gapStart, gapEnd, expected] of cases) {
@@ -261,7 +261,7 @@ test('coverage enforces two real employees through 19:10 without the old toleran
 
   assert.deepEqual(
     Array.from(coverage(Object.keys(resolved).map((id) => ({ id })), { schedule: {}, absences: [] }, day)),
-    [false, '19:10: zweite Person fehlt']
+    [false, 'Unterbesetzung · 19:00–19:10']
   );
 });
 
@@ -270,7 +270,7 @@ test('coverage tolerates a gap of exactly 60 minutes and flags longer afternoon 
   const day = new Date(2026, 7, 27);
   for (const [gapEnd, expected] of [
     ['14:00', [true, '✓ Besetzung']],
-    ['14:05', [false, 'Unterbesetzung am Nachmittag · 13:00–14:05 <2']]
+    ['14:05', [false, 'Unterbesetzung · 13:00–14:05']]
   ]) {
     const { coverage } = loadCoverage({
       opener: shift('08:55', '19:10'),
@@ -279,6 +279,83 @@ test('coverage tolerates a gap of exactly 60 minutes and flags longer afternoon 
     });
     assert.deepEqual(Array.from(coverage(employees, { schedule: {}, absences: [] }, day)), expected);
   }
+});
+
+test('coverage returns every separate understaffed time span', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    morning: shift('10:05', '13:00'),
+    afternoon: shift('14:05', '19:10')
+  };
+  const { evaluate } = loadCoverage(resolved);
+  const result = evaluate(Object.values(resolved));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'Unterbesetzung · 9:00–10:05, 13:00–14:05');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.gaps)),
+    [
+      { kind: 'understaffing', start: 540, end: 605, required: 2 },
+      { kind: 'understaffing', start: 780, end: 845, required: 2 }
+    ]
+  );
+});
+
+test('a shift ending exactly at the gap start does not cover the gap', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    endingAtGap: shift('09:00', '13:00'),
+    startingAtGapEnd: shift('14:05', '19:10')
+  };
+  const { evaluate } = loadCoverage(resolved);
+  const result = evaluate(Object.values(resolved));
+
+  assert.equal(result.reason, 'Unterbesetzung · 13:00–14:05');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.gaps)), [
+    { kind: 'understaffing', start: 780, end: 845, required: 2 }
+  ]);
+});
+
+test('a shift starting exactly at the gap end closes the gap at that boundary', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    before: shift('09:00', '15:00'),
+    startingAtGapEnd: shift('16:05', '19:10')
+  };
+  const { evaluate } = loadCoverage(resolved);
+  const result = evaluate(Object.values(resolved));
+
+  assert.equal(result.reason, 'Unterbesetzung · 15:00–16:05');
+  assert.equal(result.gaps[0].end, 16 * 60 + 5);
+});
+
+test('vacation, sick leave, and time off do not cover a daytime gap', () => {
+  for (const type of ['vacation', 'sick', 'off']) {
+    const resolved = {
+      opener: shift('08:55', '19:10'),
+      before: shift('09:00', '13:00'),
+      after: shift('14:05', '19:10'),
+      absent: { type, sourceEntry: { type: 'shift', start: '13:00', end: '14:05' } }
+    };
+    const { evaluate } = loadCoverage(resolved);
+    assert.equal(evaluate(Object.values(resolved)).reason, 'Unterbesetzung · 13:00–14:05', type);
+  }
+});
+
+test('Saturday uses the same resolved-entry coverage check', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    before: shift('09:00', '15:00'),
+    after: shift('16:05', '19:10')
+  };
+  const { coverage } = loadCoverage(resolved);
+  const saturday = new Date(2026, 7, 29);
+
+  assert.equal(saturday.getDay(), 6);
+  assert.deepEqual(
+    Array.from(coverage(Object.keys(resolved).map(id => ({ id })), { schedule: {}, absences: [] }, saturday)),
+    [false, 'Unterbesetzung · 15:00–16:05']
+  );
 });
 
 test('candidate ranking excludes workers covering the gap and prioritizes useful edge changes', () => {
