@@ -1,0 +1,39 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { loadScripts } = require('./test-helpers');
+const preview = fs.readFileSync('planung2-preview.html', 'utf8');
+const centralTime = loadScripts(['time-utils.js']);
+function extract(name){const start=preview.indexOf(`function ${name}`);assert.notEqual(start,-1,`${name} exists`);let depth=0,open=false;for(let i=start;i<preview.length;i++){if(preview[i]==='{'){depth++;open=true}else if(preview[i]==='}'&&--depth===0&&open)return preview.slice(start,i+1)}throw Error(name)}
+function harness(plan,suggestion,{fresh=[suggestion],resolved=true}={}){
+  let stored=structuredClone(plan),renders=0,toasts=[],autofixes=[];
+  const employees=[{id:suggestion.employeeId,name:'Anna'}];
+  const context=vm.createContext({
+    TEST_PLAN:'test',PREVIEW_MASTER:'master',active:()=>true,clone:structuredClone,
+    getTestPlan:()=>structuredClone(stored),load:()=>({employees}),
+    save:(_key,value)=>{stored=structuredClone(value)},render:()=>{renders++},
+    toast:(...args)=>toasts.push(args),getCurrentPlanning2OptimizationSuggestions:()=>structuredClone(fresh),
+    planning2ResolvedWorkShift:(value,employee,isoDate)=>resolved?value.schedule?.[isoDate]?.[employee.id]:null,
+    applyPlanning2OptimizationAutofixes:(_plan,_employees,isoDate)=>{autofixes.push(isoDate);return{changedIds:[],warning:''}},
+    getBusinessRequiredBreakMinutes:centralTime.getBusinessRequiredBreakMinutes,
+    getWorkedMinutesFromRange:centralTime.getWorkedMinutesFromRange
+  });
+  vm.runInContext(`${extract('planning2SuggestionKey')};${extract('recalculatePlanning2ShiftTimes')};let planning2OptimizationUndo=null;${extract('applyPlanning2OptimizationSuggestion')};${extract('undoPlanning2Optimization')};this.api={applyPlanning2OptimizationSuggestion,undoPlanning2Optimization}`,context);
+  return{api:context.api,state:()=>structuredClone(stored),renders:()=>renders,toasts,autofixes};
+}
+const isoDate='2026-08-24';
+const base={isoDate,employeeId:'anna',direction:'extend-end',proposedStart:'09:00',proposedEnd:'14:00'};
+const shift={type:'shift',status:'work',code:'F4',shiftKey:'F4',mode:'early',shiftType:'early',start:'09:00',end:'13:00',pause:0,breakMinutes:0,minutes:240,custom:'kept'};
+
+test('one accepted extend-end changes only its shift, preserves metadata, and centrally recalculates time fields',()=>{const plan={schedule:{[isoDate]:{anna:shift,ben:{type:'shift',start:'09:00',end:'19:10',minutes:580}}},absences:[]},h=harness(plan,base);assert.equal(h.api.applyPlanning2OptimizationSuggestion(base),true);const result=h.state();assert.equal(result.schedule[isoDate].anna.end,'14:00');assert.equal(result.schedule[isoDate].anna.start,'09:00');assert.equal(result.schedule[isoDate].anna.pause,0);assert.equal(result.schedule[isoDate].anna.breakMinutes,0);assert.equal(result.schedule[isoDate].anna.minutes,300);assert.equal(result.schedule[isoDate].anna.custom,'kept');assert.deepEqual(result.schedule[isoDate].ben,plan.schedule[isoDate].ben);assert.deepEqual(h.autofixes,[isoDate])});
+
+test('advance-start preserves 19:10 and recalculates checkout, pause, and minutes',()=>{const suggestion={...base,direction:'advance-start',proposedStart:'13:30',proposedEnd:'19:10'},plan={schedule:{[isoDate]:{anna:{...shift,start:'14:30',end:'19:10',withCheckout:true}}},absences:[]},h=harness(plan,suggestion);assert.equal(h.api.applyPlanning2OptimizationSuggestion(suggestion),true);assert.deepEqual({...h.state().schedule[isoDate].anna},{...shift,start:'13:30',end:'19:10',withCheckout:true,pause:10,breakMinutes:10,minutes:330})});
+
+test('central break threshold keeps exactly six hours break-free and applies the real rule above six hours',()=>{const context=vm.createContext({getBusinessRequiredBreakMinutes:centralTime.getBusinessRequiredBreakMinutes,getWorkedMinutesFromRange:centralTime.getWorkedMinutesFromRange});vm.runInContext(`${extract('recalculatePlanning2ShiftTimes')};this.recalculate=recalculatePlanning2ShiftTimes`,context);const exact=context.recalculate({type:'shift'},'09:00','15:00'),longer=context.recalculate({type:'shift'},'09:00','15:15');assert.equal(exact.pause,0);assert.equal(exact.breakMinutes,0);assert.equal(exact.minutes,centralTime.getWorkedMinutesFromRange('09:00','15:00',exact.pause));assert.equal(longer.pause,60);assert.equal(longer.breakMinutes,60);assert.equal(longer.minutes,centralTime.getWorkedMinutesFromRange('09:00','15:15',longer.pause))});
+
+test('stale suggestion and every resolved non-work state refuse mutation and re-render',()=>{for(const type of ['vacation','sick','off','holiday','external-help']){const plan={schedule:{[isoDate]:{anna:{...shift,type}}},absences:[]},h=harness(plan,base,{resolved:false});assert.equal(h.api.applyPlanning2OptimizationSuggestion(base),false,type);assert.deepEqual(h.state(),plan);assert.equal(h.renders(),1);assert.equal(h.toasts.at(-1)[0],'Vorschlag ist nicht mehr aktuell.')}const plan={schedule:{[isoDate]:{anna:shift}},absences:[]},h=harness(plan,base,{fresh:[]});assert.equal(h.api.applyPlanning2OptimizationSuggestion(base),false);assert.deepEqual(h.state(),plan)});
+
+test('undo restores the byte-equivalent complete plan and is consumed after one use',()=>{const plan={weekFrom:'2026-08-01',schedule:{[isoDate]:{anna:shift}},absences:[{id:'x',type:'vacation'}],extra:{nested:true}},h=harness(plan,base);assert.equal(h.api.applyPlanning2OptimizationSuggestion(base),true);assert.equal(h.toasts.at(-1)[0],'Vorschlag übernommen');assert.equal(h.toasts.at(-1)[1],'Rückgängig');assert.equal(h.api.undoPlanning2Optimization(),true);assert.equal(JSON.stringify(h.state()),JSON.stringify(plan));assert.equal(h.api.undoPlanning2Optimization(),false)});
+
+test('apply path is wired to fresh validation, complete autofixes, save, render, and compact action UI',()=>{assert.match(extract('applyPlanning2OptimizationSuggestion'),/getCurrentPlanning2OptimizationSuggestions/);assert.match(extract('applyPlanning2OptimizationSuggestion'),/applyPlanning2OptimizationAutofixes/);assert.match(extract('render'),/data-optimization/);assert.match(preview,/data-optimization/);assert.match(preview,/Rückgängig/)});
