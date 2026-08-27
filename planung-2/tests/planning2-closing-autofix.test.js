@@ -403,6 +403,56 @@ test('scheduled shift covered by sickness is not an 08:55 carryover candidate', 
   assert.equal(plan.schedule['2026-04-11'].healthy.start, '08:55');
 });
 
+test('losing a closer to every non-work status rechecks and clears the following opener', () => {
+  for (const type of ['vacation', 'sick', 'off', 'holiday', 'external-help']) {
+    const hidden = type === 'external-help'
+      ? { type: 'external-help', start: '09:00', end: '19:10' }
+      : { type, sourceEntry: shift('09:00', '19:10') };
+    const plan = planFor(
+      { absent: shift('09:00', '19:10'), fixed: shift('13:00', '19:10') },
+      { absent: { ...shift('08:55', '15:00'), planning2AutoOpener: true } }
+    );
+    const originalResolver = rules.getResolvedDayEntry;
+    rules.getResolvedDayEntry = options => options.isoDate === '2026-04-10' && options.employee.id === 'absent'
+      ? hidden
+      : originalResolver(options);
+
+    const result = applyRule(plan, [employee('absent'), employee('fixed')], '2026-04-10');
+
+    assert.equal(result.warning, '19:10: zweite Person fehlt', type);
+    assert.equal(plan.schedule['2026-04-11'].absent.start, '09:00', type);
+    assert.equal(plan.schedule['2026-04-11'].absent.planning2AutoOpener, undefined, type);
+    rules.getResolvedDayEntry = originalResolver;
+  }
+});
+
+test('replacing an absence with a work shift re-evaluates the following opener', () => {
+  const plan = planFor(
+    { restored: shift('09:00', '19:10'), fixed: shift('13:00', '19:10') },
+    { restored: shift('09:00', '15:00'), stale: { ...shift('08:55', '15:00'), planning2AutoOpener: true } }
+  );
+
+  applyRule(plan, [employee('restored', 'TL'), employee('fixed'), employee('stale')], '2026-04-10');
+
+  assert.equal(plan.schedule['2026-04-11'].restored.start, '08:55');
+  assert.equal(plan.schedule['2026-04-11'].stale.start, '09:00');
+});
+
+test('Saturday closer status changes re-evaluate the linked Monday opener', () => {
+  const plan = {
+    schedule: {
+      '2026-04-11': { absent: shift('09:00', '19:10'), fixed: shift('13:00', '19:10') },
+      '2026-04-13': { absent: { ...shift('08:55', '15:00'), planning2AutoOpener: true } }
+    },
+    absences: [{ id: 'u-saturday', employeeId: 'absent', type: 'vacation', from: '2026-04-11', to: '2026-04-11' }]
+  };
+
+  applyRule(plan, [employee('absent'), employee('fixed')], '2026-04-11');
+
+  assert.equal(plan.schedule['2026-04-13'].absent.start, '09:00');
+  assert.equal(plan.schedule['2026-04-13'].absent.planning2AutoOpener, undefined);
+});
+
 test('candidate 2 workload ignores scheduled hours hidden by a resolved absence', () => {
   const plan = planFor({ closer: shift('09:00', '19:10'), absentLow: shift('09:00', '19:00'), actuallyHigh: shift('09:00', '19:00') });
   plan.schedule['2026-04-07'] = {
