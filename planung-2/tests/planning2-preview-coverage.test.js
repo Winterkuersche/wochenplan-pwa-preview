@@ -38,7 +38,7 @@ function loadCoverage(resolvedByEmployee) {
     }
   });
   vm.runInContext(
-    `${extractFunction('resolvePlanDay')};${extractFunction('resolvedShiftTimes')};${extractFunction('coverage')};this.coverage=coverage`,
+    `${extractFunction('resolvePlanDay')};${extractFunction('resolvedShiftTimes')};${extractFunction('evaluateResolvedDayCoverage')};${extractFunction('coverage')};this.coverage=coverage`,
     context
   );
   return { coverage: context.coverage, calls };
@@ -126,6 +126,7 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
     extractFunction('makeShift'),
     extractFunction('resolvePlanDay'),
     extractFunction('resolvedShiftTimes'),
+    extractFunction('evaluateResolvedDayCoverage'),
     extractFunction('coverage'),
     extractFunction('cell'),
     extractFunction('shiftDayIso'),
@@ -138,7 +139,10 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
     extractFunction('applyPlanning2EarlyStartCarryover'),
     extractFunction('closingWorkload'),
     extractFunction('extendClosingShift'),
+    extractFunction('restoreClosingShift'),
+    extractFunction('alignPreviousClosingTeam'),
     extractFunction('applyPlanning2ClosingAutofix'),
+    extractFunction('applyPlanning2SavedDayAutofixes'),
     extractFunction('persist'),
     extractFunction('saveCustom'),
     `editing={eid:'late',dayIso:'${dayIso}'}`,
@@ -259,4 +263,83 @@ test('coverage enforces two real employees through 19:10 without the old toleran
     Array.from(coverage(Object.keys(resolved).map((id) => ({ id })), { schedule: {}, absences: [] }, day)),
     [false, '19:10: zweite Person fehlt']
   );
+});
+
+test('coverage tolerates a gap of exactly 60 minutes and flags longer afternoon gaps', () => {
+  const employees = [{ id: 'opener' }, { id: 'before' }, { id: 'after' }];
+  const day = new Date(2026, 7, 27);
+  for (const [gapEnd, expected] of [
+    ['14:00', [true, '✓ Besetzung']],
+    ['14:05', [false, 'Unterbesetzung am Nachmittag · 13:00–14:05 <2']]
+  ]) {
+    const { coverage } = loadCoverage({
+      opener: shift('08:55', '19:10'),
+      before: shift('09:00', '13:00'),
+      after: shift(gapEnd, '19:10')
+    });
+    assert.deepEqual(Array.from(coverage(employees, { schedule: {}, absences: [] }, day)), expected);
+  }
+});
+
+test('candidate ranking excludes workers covering the gap and prioritizes useful edge changes', () => {
+  const context = vm.createContext({
+    mins: (value) => { const [hours, minutes] = value.split(':').map(Number); return hours * 60 + minutes; },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+  });
+  vm.runInContext([
+    extractFunction('resolvedShiftTimes'),
+    extractFunction('rankUnderstaffingCandidates'),
+    'this.rank=rankUnderstaffingCandidates'
+  ].join(';'), context);
+  const employees = [
+    { id: 'covering', name: 'Schon da', target: '30:00' },
+    { id: 'before', name: 'Davor', target: '30:00' },
+    { id: 'after', name: 'Danach', target: '30:00' },
+    { id: 'far', name: 'Weit davor', target: '30:00' },
+    { id: 'gfb', name: 'GFB', roleKey: 'GFB', target: '30:00' },
+    { id: 'vacation' }, { id: 'sick' }, { id: 'off' }, { id: 'holiday' }, { id: 'external' }
+  ];
+  const resolved = [
+    shift('09:00', '19:10'),
+    shift('09:00', '13:00'),
+    shift('14:05', '19:10'),
+    shift('09:00', '12:00'),
+    shift('14:05', '19:10'),
+    { type: 'vacation', sourceEntry: { type: 'shift', start: '09:00', end: '13:00' } },
+    { type: 'sick', sourceEntry: { type: 'shift', start: '14:05', end: '19:10' } },
+    { type: 'off', sourceEntry: { type: 'off' } },
+    { type: 'holiday', sourceEntry: { type: 'shift', start: '09:00', end: '13:00' } },
+    { type: 'external-help', sourceEntry: { type: 'external-help', start: '14:05', end: '19:10' } }
+  ];
+  const actual = { covering: 0, before: 31 * 60, after: 20 * 60, far: 0, gfb: 5 * 60 };
+  const targets = Object.fromEntries(employees.map(employee => [employee.id, 30 * 60]));
+  const gap = { kind: 'understaffing', start: 13 * 60, end: 14 * 60 + 5 };
+  const ranked = context.rank(employees, resolved, gap, actual, targets);
+
+  assert.deepEqual(Array.from(ranked, candidate => candidate.employeeId), ['after', 'gfb', 'before', 'far']);
+  assert.ok(!ranked.some(candidate => candidate.employeeId === 'covering'));
+  assert.deepEqual(JSON.parse(JSON.stringify(ranked[0])), {
+    employeeId: 'after', employeeName: 'Danach', shiftStart: '14:05', shiftEnd: '19:10',
+    proposedStart: '13:00', proposedEnd: '19:10', adjustmentDirection: 'advance-start', changeMinutes: 65,
+    weeklyActualMinutes: 1200, weeklyTargetMinutes: 1800, differenceMinutes: -600
+  });
+  assert.equal(ranked.find(candidate => candidate.employeeId === 'before').adjustmentDirection, 'extend-end');
+  assert.equal(ranked.find(candidate => candidate.employeeId === 'far').changeMinutes, 125);
+  assert.equal(ranked.find(candidate => candidate.employeeId === 'gfb').differenceMinutes, 0, 'GFB has no artificial weekly deficit');
+});
+
+test('candidate ranking is only available for general understaffing gaps', () => {
+  const context = vm.createContext({
+    mins: (value) => { const [hours, minutes] = value.split(':').map(Number); return hours * 60 + minutes; },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+  });
+  vm.runInContext([
+    extractFunction('resolvedShiftTimes'), extractFunction('rankUnderstaffingCandidates'),
+    'this.rank=rankUnderstaffingCandidates'
+  ].join(';'), context);
+  const employee = [{ id: 'worker', target: '30:00' }];
+  const resolved = [shift('09:00', '13:00')];
+
+  assert.deepEqual(Array.from(context.rank(employee, resolved, { kind: 'opener', start: 535, end: 540 }, {}, {})), []);
+  assert.deepEqual(Array.from(context.rank(employee, resolved, { kind: 'closing', start: 1140, end: 1150 }, {}, {})), []);
 });

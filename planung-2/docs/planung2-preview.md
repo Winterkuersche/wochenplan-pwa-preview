@@ -17,77 +17,32 @@ lassen.
 
 Das automatische `GITHUB_TOKEN` ist außerdem nur für das Repository gültig, in
 dem der Workflow läuft. Ein Workflow in `wochenplan-pwa` kann damit nicht in
-`wochenplan-pwa-preview` schreiben. Deshalb wurde der bisherige Workflow aus
-diesem Repository entfernt: Er setzte für den Cross-Repository-Push das manuell
-gepflegte Secret `PREVIEW_REPOSITORY_TOKEN` voraus.
+`wochenplan-pwa-preview` schreiben. Der bisherige Workflow prüfte deshalb nur
+Dateien und Tests und endete anschließend, ohne die Preview-Dateien zu
+veröffentlichen. Für den Cross-Repository-Push ist das gezielt berechtigte Secret
+`PREVIEW_REPOSITORY_TOKEN` erforderlich.
 
-## Einfachste tokenfreie GitHub-Pages-Alternative
+## Automatische Veröffentlichung nach einem Push
 
-Die produktive Site bleibt unverändert. Das vorhandene öffentliche Repository
-`wochenplan-pwa-preview` kann weiterhin die feste Testseite bereitstellen, aber
-es holt den öffentlichen Branch selbst ab. Der folgende Workflow gehört **in
-das Preview-Repository**. Dort darf sein normales `GITHUB_TOKEN` in dasselbe
-Repository schreiben; ein Personal Access Token ist nicht erforderlich.
+Die produktive Site bleibt unverändert. Der Workflow
+`.github/workflows/planung-2-preview.yml` verwendet den bereits für Previews
+eingeführten Mechanismus: Nach einem Push auf `planung-2-interaktiv` laufen
+zuerst die Planung-2-Tests. Nur wenn sie erfolgreich sind, wird der Stand in den
+Ordner `planung-2/` des separaten Pages-Repositorys
+`Winterkuersche/wochenplan-pwa-preview` kopiert. Dort wird
+`planung2-preview.html` als `index.html` bereitgestellt.
 
-```yaml
-name: Planung 2 Preview
-
-on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-concurrency:
-  group: planung-2-preview
-  cancel-in-progress: true
-
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout preview repository
-        uses: actions/checkout@v4
-
-      - name: Checkout Planung 2
-        uses: actions/checkout@v4
-        with:
-          repository: Winterkuersche/wochenplan-pwa
-          ref: planung-2-interaktiv
-          path: source
-
-      - name: Update fixed preview
-        run: |
-          mkdir -p planung-2
-          rsync --archive --delete \
-            --exclude='.git' \
-            --exclude='.github/' \
-            source/ planung-2/
-          cp planung-2/planung2-preview.html planung-2/index.html
-          rm -rf source
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add planung-2
-          git diff --cached --quiet && exit 0
-          git commit -m "Update Planung 2 preview"
-          git push
-```
-
-GitHub plant zeitgesteuerte Actions nicht sekundengenau. Der Teststand wird mit
-dieser tokenfreien Variante spätestens beim nächsten erfolgreichen
-Fünf-Minuten-Lauf übernommen. Über `workflow_dispatch` kann der Lauf zusätzlich
-sofort manuell gestartet werden. Ein exakter Push-Trigger über zwei Repositories
-würde dagegen wieder eine repository-übergreifende Zugangsdaten- oder
-GitHub-App-Konfiguration erfordern.
+Für den repository-übergreifenden Checkout und Push wird das vorhandene Secret
+`PREVIEW_REPOSITORY_TOKEN` benötigt. Es muss Schreibzugriff ausschließlich auf
+`wochenplan-pwa-preview` besitzen. Das normale `GITHUB_TOKEN` dieses Repositorys
+bleibt auf Lesezugriff beschränkt. Weder `main` noch die Pages-Konfiguration oder
+Inhalte der normalen App werden durch den Workflow verändert.
 
 Die feste Testadresse bleibt:
 
 <https://winterkuersche.github.io/wochenplan-pwa-preview/planung-2/>
 
-Im Preview-Repository muss GitHub Pages weiterhin aus dem Branch veröffentlichen,
-in den der Workflow pusht. Unter **Settings → Actions → General → Workflow
-permissions** muss außerdem **Read and write permissions** erlaubt sein. Es ist
-kein Repository-Secret und kein Personal Access Token nötig.
+Im Preview-Repository muss GitHub Pages weiterhin aus dessen Standard-Branch
+veröffentlichen. Die Preview wird nach einem erfolgreichen Workflow-Lauf unter
+der festen Adresse aktualisiert; der manuelle Start über `workflow_dispatch`
+bleibt ebenfalls möglich.

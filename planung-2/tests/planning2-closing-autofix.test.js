@@ -18,15 +18,105 @@ function extractFunction(name) {
 function loadRule() {
   const names = ['mins', 'shiftDayIso', 'previousRelevantWorkday', 'nextRelevantWorkday',
     'carryoverRolePriority', 'planning2ResolvedWorkShift', 'rankCarryoverCandidates', 'updatePlanning2ShiftStart',
-    'applyPlanning2EarlyStartCarryover', 'closingWorkload', 'extendClosingShift', 'applyPlanning2ClosingAutofix'];
+    'applyPlanning2EarlyStartCarryover', 'closingWorkload', 'extendClosingShift', 'restoreClosingShift',
+    'alignPreviousClosingTeam', 'applyPlanning2ClosingAutofix',
+    'applyPlanning2SavedDayAutofixes'];
   const context = loadScripts(['holidays.js', 'time-utils.js', 'shift-rules.js', 'date-utils.js', 'shift-utils.js', 'status-utils.js', 'absences.js', 'day-resolution.js']);
-  vm.runInContext(`${names.map(extractFunction).join(';')} ;this.applyRule=applyPlanning2ClosingAutofix;`, context);
-  return context.applyRule;
+  vm.runInContext(`${names.map(extractFunction).join(';')} ;this.applyRule=applyPlanning2ClosingAutofix;this.applySavedDay=applyPlanning2SavedDayAutofixes;`, context);
+  return context;
 }
-const applyRule = loadRule();
+const rules = loadRule();
+const applyRule = rules.applyRule;
+const applySavedDay = rules.applySavedDay;
 const employee = (id, roleKey = 'MA') => ({ id, roleKey, target: '40:00' });
 const shift = (start, end, mode = 'flex') => ({ type: 'shift', start, end, mode, code: mode, minutes: 600, pause: 0 });
 const planFor = (today, tomorrow = {}) => ({ schedule: { '2026-04-10': today, '2026-04-11': tomorrow } });
+const savedFridayPlan = (thursday, friday) => ({ schedule: { '2026-04-09': thursday, '2026-04-10': friday }, absences: [] });
+
+test('saving a new Friday G shift applies Thursday 19:10 carryover', () => {
+  const plan = savedFridayPlan({ a: shift('09:00', '19:10') }, { a: shift('09:00', '19:00', 'G') });
+  applySavedDay(plan, [employee('a')], '2026-04-10');
+  assert.equal(plan.schedule['2026-04-10'].a.start, '08:55');
+  assert.equal(plan.schedule['2026-04-10'].a.pause, 65);
+  assert.equal(plan.schedule['2026-04-10'].a.minutes, 540);
+});
+
+test('saved F6 and Flex shifts qualify by their resolved 09:00 start', () => {
+  for (const code of ['F6', 'FLEX']) {
+    const plan = savedFridayPlan({ a: shift('13:00', '19:10') }, { a: shift('09:00', '15:00', code) });
+    applySavedDay(plan, [employee('a')], '2026-04-10');
+    assert.equal(plan.schedule['2026-04-10'].a.start, '08:55', code);
+    assert.equal(plan.schedule['2026-04-10'].a.pause, 5, code);
+    assert.equal(plan.schedule['2026-04-10'].a.breakMinutes, 5, code);
+    assert.equal(plan.schedule['2026-04-10'].a.minutes, 360, code);
+  }
+});
+
+test('saving Friday G, F6, or Flex reselects the already completed Thursday closing team', () => {
+  for (const [code, end] of [['G', '19:00'], ['F6', '15:00'], ['FLEX', '16:00']]) {
+    const plan = savedFridayPlan(
+      {
+        a: { ...shift('09:00', '19:10'), planning2AutoCloser: true },
+        b: { ...shift('13:00', '19:10'), planning2AutoCloser: true },
+        c: shift('09:00', '19:00')
+      },
+      { c: shift('09:00', end, code) }
+    );
+
+    applySavedDay(plan, [employee('a'), employee('b'), employee('c')], '2026-04-10');
+
+    assert.equal(plan.schedule['2026-04-09'].c.end, '19:10', code);
+    assert.equal(plan.schedule['2026-04-09'].c.planning2AutoCloser, true, code);
+    assert.equal(Object.values(plan.schedule['2026-04-09']).filter(value => value.end === '19:10').length, 2, code);
+    assert.equal(['a', 'b'].filter(id => plan.schedule['2026-04-09'][id].end === '19:00').length, 1, code);
+    assert.equal(plan.schedule['2026-04-10'].c.start, '08:55', code);
+    assert.equal(plan.schedule['2026-04-10'].c.minutes, code === 'G' ? 540 : 360, code);
+  }
+});
+
+test('previous-day rebalance preserves a manual closer before an automatic closer', () => {
+  const plan = savedFridayPlan(
+    {
+      manual: shift('09:00', '19:10'),
+      automatic: { ...shift('13:00', '19:10'), planning2AutoCloser: true },
+      morning: shift('09:00', '19:00')
+    },
+    { morning: shift('09:00', '15:00', 'F6') }
+  );
+
+  applySavedDay(plan, [employee('manual'), employee('automatic'), employee('morning')], '2026-04-10');
+
+  assert.equal(plan.schedule['2026-04-09'].manual.end, '19:10');
+  assert.equal(plan.schedule['2026-04-09'].automatic.end, '19:00');
+});
+
+test('saved morning extends its previous 19:00 shift and receives 08:55', () => {
+  const plan = savedFridayPlan({ a: shift('09:00', '19:00') }, { a: shift('09:00', '15:00', 'F6') });
+  applySavedDay(plan, [employee('a')], '2026-04-10');
+  assert.equal(plan.schedule['2026-04-09'].a.end, '19:10');
+  assert.equal(plan.schedule['2026-04-10'].a.start, '08:55');
+});
+
+test('resolved vacation or sickness cannot receive saved-day carryover', () => {
+  for (const type of ['vacation', 'sick']) {
+    const plan = savedFridayPlan({ a: shift('09:00', '19:10') }, { a: shift('09:00', '15:00', 'F6') });
+    plan.absences.push({ id: type, employeeId: 'a', type, from: '2026-04-10', to: '2026-04-10' });
+    applySavedDay(plan, [employee('a')], '2026-04-10');
+    assert.equal(plan.schedule['2026-04-10'].a.start, '09:00', type);
+  }
+});
+
+test('saved-day carryover assigns exactly one ranked person and resets stale 08:55', () => {
+  const plan = savedFridayPlan(
+    { normal: shift('09:00', '19:10'), sv: shift('09:00', '19:10'), tl: shift('09:00', '19:10'), stale: shift('09:00', '19:00') },
+    { normal: shift('09:00', '15:00'), sv: shift('09:00', '15:00'), tl: shift('09:00', '15:00'), stale: shift('08:55', '15:00') }
+  );
+  applySavedDay(plan, [employee('normal'), employee('sv', 'SV'), employee('tl', 'TL'), employee('stale')], '2026-04-10');
+  assert.deepEqual(Object.entries(plan.schedule['2026-04-10']).filter(([, value]) => value.start === '08:55').map(([id]) => id), ['tl']);
+  assert.equal(plan.schedule['2026-04-10'].stale.start, '09:00');
+  assert.equal(plan.schedule['2026-04-10'].stale.pause, 0);
+  assert.equal(plan.schedule['2026-04-10'].stale.minutes, 360);
+});
 
 test('two existing 19:10 closers remain completely unchanged', () => {
   const plan = planFor({ a: shift('09:00', '19:10'), b: shift('13:00', '19:10'), c: shift('09:00', '19:00') });
