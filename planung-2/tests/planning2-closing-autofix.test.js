@@ -74,6 +74,137 @@ test('saving Friday G, F6, or Flex reselects the already completed Thursday clos
   }
 });
 
+test('saving an explicit early shift reassigns the previous closing team to that employee', () => {
+  const plan = savedFridayPlan(
+    {
+      a: { ...shift('09:00', '19:10'), planning2AutoCloser: true },
+      b: shift('13:00', '19:10'),
+      early: shift('09:00', '19:00')
+    },
+    { early: shift('08:55', '15:00', 'FO') }
+  );
+
+  applySavedDay(plan, [employee('a'), employee('b'), employee('early')], '2026-04-10');
+
+  assert.equal(plan.schedule['2026-04-09'].a.end, '19:00');
+  assert.equal(plan.schedule['2026-04-09'].b.end, '19:10');
+  assert.equal(plan.schedule['2026-04-09'].early.end, '19:10');
+  assert.equal(plan.schedule['2026-04-10'].early.start, '08:55');
+  assert.equal(plan.schedule['2026-04-10'].early.planning2AutoOpener, undefined);
+});
+
+test('changing the explicit early employee switches the previous closing assignment', () => {
+  const plan = savedFridayPlan(
+    {
+      a: { ...shift('09:00', '19:10'), planning2AutoCloser: true },
+      b: shift('09:00', '19:00'),
+      fixed: shift('13:00', '19:10')
+    },
+    {
+      a: { ...shift('09:00', '15:00'), planning2AutoOpener: true },
+      b: shift('08:55', '15:00', 'FO')
+    }
+  );
+
+  applySavedDay(plan, [employee('a'), employee('b'), employee('fixed')], '2026-04-10');
+
+  assert.equal(plan.schedule['2026-04-09'].a.end, '19:00');
+  assert.equal(plan.schedule['2026-04-09'].b.end, '19:10');
+  assert.deepEqual(Object.entries(plan.schedule['2026-04-10']).filter(([, value]) => value.start === '08:55').map(([id]) => id), ['b']);
+});
+
+test('a consciously saved early shift replaces the old automatic closer and opener', () => {
+  const plan = savedFridayPlan(
+    {
+      automatic: { ...shift('09:00', '19:10'), planning2AutoCloser: true },
+      manual: shift('13:00', '19:10'),
+      conscious: shift('09:00', '19:00')
+    },
+    {
+      automatic: { ...shift('08:55', '15:00', 'F6'), mode: 'early', planning2AutoOpener: true },
+      conscious: { ...shift('08:55', '15:00', 'FO'), mode: 'early' }
+    }
+  );
+
+  applySavedDay(plan, [employee('automatic'), employee('manual'), employee('conscious')], '2026-04-10');
+
+  assert.equal(plan.schedule['2026-04-09'].automatic.end, '19:00');
+  assert.equal(plan.schedule['2026-04-09'].manual.end, '19:10');
+  assert.equal(plan.schedule['2026-04-09'].conscious.end, '19:10');
+  assert.equal(plan.schedule['2026-04-10'].automatic.start, '09:00');
+  assert.equal(plan.schedule['2026-04-10'].automatic.planning2AutoOpener, undefined);
+  assert.equal(plan.schedule['2026-04-10'].conscious.start, '08:55');
+  assert.equal(plan.schedule['2026-04-10'].conscious.planning2AutoOpener, undefined);
+  assert.equal(Object.values(plan.schedule['2026-04-09']).filter(value => value.end === '19:10').length, 2);
+  assert.equal(Object.values(plan.schedule['2026-04-10']).filter(value => value.start === '08:55').length, 1);
+});
+
+test('an automatic F6 opener is not explicit merely because its mode is early', () => {
+  const plan = savedFridayPlan(
+    {
+      automatic: { ...shift('09:00', '19:10'), planning2AutoCloser: true },
+      tl: shift('13:00', '19:10')
+    },
+    {
+      automatic: { ...shift('08:55', '15:00', 'F6'), mode: 'early', planning2AutoOpener: true },
+      tl: shift('09:00', '15:00', 'F6')
+    }
+  );
+
+  applySavedDay(plan, [employee('automatic'), employee('tl', 'TL')], '2026-04-10');
+
+  assert.equal(plan.schedule['2026-04-10'].automatic.start, '09:00');
+  assert.equal(plan.schedule['2026-04-10'].automatic.planning2AutoOpener, undefined);
+  assert.equal(plan.schedule['2026-04-10'].tl.start, '08:55');
+  assert.equal(plan.schedule['2026-04-10'].tl.planning2AutoOpener, true);
+});
+
+test('deleting an early shift rechecks but does not needlessly change two previous closers', () => {
+  const plan = savedFridayPlan(
+    { a: shift('09:00', '19:10'), b: shift('13:00', '19:10'), c: shift('09:00', '19:00') },
+    {}
+  );
+  const previousBefore = JSON.stringify(plan.schedule['2026-04-09']);
+
+  applySavedDay(plan, [employee('a'), employee('b'), employee('c')], '2026-04-10');
+
+  assert.equal(JSON.stringify(plan.schedule['2026-04-09']), previousBefore);
+});
+
+test('an unrelated saved-day change leaves a valid previous team untouched', () => {
+  const plan = savedFridayPlan(
+    { a: shift('09:00', '19:10'), b: shift('13:00', '19:10'), c: shift('09:00', '17:00') },
+    { c: shift('13:00', '17:00', 'flex') }
+  );
+  const previousBefore = JSON.stringify(plan.schedule['2026-04-09']);
+
+  applySavedDay(plan, [employee('a'), employee('b'), employee('c')], '2026-04-10');
+
+  assert.equal(JSON.stringify(plan.schedule['2026-04-09']), previousBefore);
+});
+
+test('a Monday early shift rebalances Saturday and retains exactly two closers and one opener', () => {
+  const plan = {
+    schedule: {
+      '2026-04-11': {
+        old: { ...shift('09:00', '19:10'), planning2AutoCloser: true },
+        fixed: shift('13:00', '19:10'),
+        early: shift('09:00', '19:00')
+      },
+      '2026-04-13': {
+        old: { ...shift('08:55', '15:00'), planning2AutoOpener: true },
+        early: shift('08:55', '15:00', 'FO')
+      }
+    },
+    absences: []
+  };
+
+  applySavedDay(plan, [employee('old'), employee('fixed'), employee('early')], '2026-04-13');
+
+  assert.deepEqual(Object.entries(plan.schedule['2026-04-11']).filter(([, value]) => value.end === '19:10').map(([id]) => id).sort(), ['early', 'fixed']);
+  assert.deepEqual(Object.entries(plan.schedule['2026-04-13']).filter(([, value]) => value.start === '08:55').map(([id]) => id), ['early']);
+});
+
 test('previous-day rebalance preserves a manual closer before an automatic closer', () => {
   const plan = savedFridayPlan(
     {
