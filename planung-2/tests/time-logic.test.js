@@ -96,3 +96,11 @@ test('MEP pause minutes use same business break values for edge ranges', () => {
     60
   );
 });
+
+test('edge minutes do not trigger a higher regular break tier', () => {
+  assert.equal(ctx.getBusinessRequiredBreakMinutes('08:55', '15:00'), 5);
+  assert.equal(ctx.getBusinessRequiredBreakMinutes('13:00', '19:10'), 10);
+  assert.equal(ctx.getBusinessRequiredBreakMinutes('08:55', '19:00'), 65);
+  assert.equal(ctx.getBusinessRequiredBreakMinutes('09:00', '19:10'), 70);
+  assert.equal(ctx.getBusinessRequiredBreakMinutes('08:55', '19:10'), 75);
+});

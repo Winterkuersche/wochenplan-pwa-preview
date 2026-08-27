@@ -179,12 +179,12 @@ function getBusinessRequiredBreakMinutes(startHHMM, endHHMM, configuredBreakMinu
   const normalizedStart = normalizePlanTime(startHHMM);
   const normalizedEnd = normalizePlanTime(endHHMM);
 
-  // Deterministische Kurzschicht-Overrides zuerst.
-  if (normalizedStart === "08:55" && normalizedEnd === "15:00") return 5;
-  if (normalizedStart === "13:00" && normalizedEnd === "19:10") return 10;
-
-  const totalSpanMinutes = diffMinutesBetweenHHMM(normalizedStart, normalizedEnd);
-  let requiredBreakMinutes = totalSpanMinutes > REQUIRED_BREAK_THRESHOLD_MINUTES ? REQUIRED_BREAK_BASE_MINUTES : 0;
+  // Die fünf bzw. zehn Randminuten sind reine Zusatzpause. Für die reguläre
+  // Pausenstufe werden deshalb die vertraglichen Grenzen 09:00/19:00 verwendet.
+  const regularStart = normalizedStart === "08:55" ? "09:00" : normalizedStart;
+  const regularEnd = normalizedEnd === "19:10" ? "19:00" : normalizedEnd;
+  const regularSpanMinutes = diffMinutesBetweenHHMM(regularStart, regularEnd);
+  let requiredBreakMinutes = regularSpanMinutes > REQUIRED_BREAK_THRESHOLD_MINUTES ? REQUIRED_BREAK_BASE_MINUTES : 0;
 
   if (normalizedStart === "08:55") requiredBreakMinutes += 5;
   if (normalizedEnd === "19:10") requiredBreakMinutes += 10;

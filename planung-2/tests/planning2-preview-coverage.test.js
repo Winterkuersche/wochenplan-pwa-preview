@@ -59,9 +59,9 @@ test('coverage uses every employee resolved shift and refreshes after a changed 
   const plan = { schedule: {}, absences: [] };
   const day = new Date(2026, 7, 27);
 
-  assert.deepEqual(Array.from(coverage(employees, plan, day)), [false, '18:00–19:10 <2']);
+  assert.deepEqual(Array.from(coverage(employees, plan, day)), [false, '19:10: zweite Person fehlt']);
 
-  resolved.late = shift('15:00', '19:00');
+  resolved.late = shift('15:00', '19:10');
   assert.deepEqual(Array.from(coverage(employees, plan, day)), [true, '✓ Besetzung']);
   assert.equal(calls.length, 6, 'each check resolves every employee again');
   assert.equal(calls[0].isoDate, '2026-08-27');
@@ -94,6 +94,8 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   ]);
   const context = vm.createContext({
     TEST_PLAN: 'planning-2-test-plan',
+    PREVIEW_MASTER: 'planning-2-master',
+    active: () => true,
     LIVE_PLAN: 'live-plan',
     localStorage: {
       getItem: (key) => stored.get(key) ?? null,
@@ -106,6 +108,8 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
     },
     hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`,
     getResolvedDayEntry: realResolution.getResolvedDayEntry,
+    getBusinessRequiredBreakMinutes: realResolution.getBusinessRequiredBreakMinutes,
+    getWorkedMinutesFromRange: realResolution.getWorkedMinutesFromRange,
     document: { getElementById: (id) => editorFields[id] },
     toast: () => {},
     closeEditor: () => {}
@@ -116,7 +120,6 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
     extractFunction('save'),
     extractFunction('clone'),
     extractFunction('getTestPlan'),
-    extractFunction('pauseFor'),
     extractFunction('removeAbsenceDay'),
     extractFunction('clearDay'),
     extractFunction('putEntry'),
@@ -125,6 +128,17 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
     extractFunction('resolvedShiftTimes'),
     extractFunction('coverage'),
     extractFunction('cell'),
+    extractFunction('shiftDayIso'),
+    extractFunction('previousRelevantWorkday'),
+    extractFunction('nextRelevantWorkday'),
+    extractFunction('carryoverRolePriority'),
+    extractFunction('planning2ResolvedWorkShift'),
+    extractFunction('rankCarryoverCandidates'),
+    extractFunction('updatePlanning2ShiftStart'),
+    extractFunction('applyPlanning2EarlyStartCarryover'),
+    extractFunction('closingWorkload'),
+    extractFunction('extendClosingShift'),
+    extractFunction('applyPlanning2ClosingAutofix'),
     extractFunction('persist'),
     extractFunction('saveCustom'),
     `editing={eid:'late',dayIso:'${dayIso}'}`,
@@ -135,6 +149,7 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   context.renderedCoverage = renderedCoverage;
   context.renderedLateCells = renderedLateCells;
 
+  stored.set('planning-2-master', JSON.stringify({ employees }));
   stored.set('planning-2-test-plan', JSON.stringify({
     schedule: {
       [dayIso]: {
@@ -147,7 +162,7 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   }));
 
   vm.runInContext('render()', context);
-  assert.deepEqual(Array.from(renderedCoverage[0]), [false, '18:00–19:10 <2']);
+  assert.deepEqual(Array.from(renderedCoverage[0]), [false, '19:10: zweite Person fehlt']);
   const legacyResolved = realResolution.getResolvedDayEntry({
     employee: employees[2],
     isoDate: dayIso,
@@ -163,8 +178,8 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   vm.runInContext("saveCustom()", context);
 
   assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.start, '14:00');
-  assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.end, '19:00');
-  assert.deepEqual(Array.from(renderedLateCells[1]), ['14:00–19:00', 'L', 'shift']);
+  assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.end, '19:10');
+  assert.deepEqual(Array.from(renderedLateCells[1]), ['14:00–19:10', 'L', 'shift']);
   assert.deepEqual(Array.from(renderedCoverage[1]), [true, '✓ Besetzung']);
 });
 
@@ -180,21 +195,68 @@ test('coverage excludes resolved non-working states including external help', ()
 
   assert.deepEqual(
     Array.from(coverage(employees, { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
-    [false, '9:00–19:10 <2']
+    [false, '19:10: zweite Person fehlt']
   );
 });
 
-test('coverage keeps the 60-minute tolerance through the 19:10 closing check', () => {
+test('coverage prioritizes a missing 08:55 opener', () => {
+  const resolved = {
+    first: shift('09:00', '19:10'),
+    second: shift('09:00', '19:10')
+  };
+  const { coverage } = loadCoverage(resolved);
+
+  assert.deepEqual(
+    Array.from(coverage([{ id: 'first' }, { id: 'second' }], { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+    [false, '08:55 fehlt']
+  );
+});
+
+test('coverage identifies morning, afternoon, and evening understaffing', () => {
+  const cases = [
+    ['Vormittag', '09:00', '10:05', 'Unterbesetzung am Vormittag · 9:00–10:05 <2'],
+    ['Nachmittag', '13:00', '14:05', 'Unterbesetzung am Nachmittag · 13:00–14:05 <2'],
+    ['Abend', '18:00', '19:10', '19:10: zweite Person fehlt']
+  ];
+
+  for (const [section, gapStart, gapEnd, expected] of cases) {
+    const resolved = {
+      opener: shift('08:55', '19:10'),
+      beforeGap: shift('09:00', gapStart),
+      afterGap: shift(gapEnd, '19:10')
+    };
+    const { coverage } = loadCoverage(resolved);
+    assert.deepEqual(
+      Array.from(coverage(Object.keys(resolved).map((id) => ({ id })), { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+      [false, expected],
+      `${section} should be named in the warning`
+    );
+  }
+});
+
+test('coverage reports sufficient staffing for a fully covered day', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    second: shift('09:00', '19:10')
+  };
+  const { coverage } = loadCoverage(resolved);
+
+  assert.deepEqual(
+    Array.from(coverage([{ id: 'opener' }, { id: 'second' }], { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+    [true, '✓ Besetzung']
+  );
+});
+
+test('coverage enforces two real employees through 19:10 without the old tolerance', () => {
+  const day = new Date(2026, 3, 8);
   const resolved = {
     opener: shift('08:55', '19:10'),
     second: shift('09:00', '19:00')
   };
   const { coverage } = loadCoverage(resolved);
-  const employees = [{ id: 'opener' }, { id: 'second' }];
 
   assert.deepEqual(
-    Array.from(coverage(employees, { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
-    [true, '✓ Besetzung'],
-    'the ten minutes from 19:00 to 19:10 remain within tolerance'
+    Array.from(coverage(Object.keys(resolved).map((id) => ({ id })), { schedule: {}, absences: [] }, day)),
+    [false, '19:10: zweite Person fehlt']
   );
 });
