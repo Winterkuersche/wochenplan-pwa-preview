@@ -37,7 +37,15 @@ test('central ranking prefers an employee below target over one above target',()
 
 test('central ranking prefers the larger useful deficit',()=>{const built=rankSuggestions([{id:'small-minus',roleKey:'TZ',targetMinutes:360,actual:300},{id:'large-minus',roleKey:'TZ',targetMinutes:600,actual:300}]);assert.equal(built.result[0].employeeId,'large-minus');assert.equal(built.result[0].ranking.deficitMinutes,300)});
 
+test('a meaningfully larger deficit wins despite a somewhat longer extension',()=>{const built=rankSuggestions([{id:'large-minus',roleKey:'TZ',targetMinutes:900,actual:300},{id:'short-small-minus',roleKey:'TZ',targetMinutes:360,actual:300}],['13:00','13:30']);assert.equal(built.result[0].employeeId,'large-minus');assert.equal(built.result[0].changeMinutes,60)});
+
+test('TZ below target ranks before an eligible GFB',()=>{const built=rankSuggestions([{id:'gfb',roleKey:'GFB',actual:300},{id:'tz-minus',roleKey:'TZ',targetMinutes:600,actual:300}]);assert.equal(built.result[0].employeeId,'tz-minus')});
+
+test('GFB ranks before normal candidates that already met or exceeded target',()=>{const built=rankSuggestions([{id:'plus',roleKey:'TZ',targetMinutes:200,actual:300},{id:'gfb',roleKey:'GFB',actual:300},{id:'met',roleKey:'TZ',targetMinutes:300,actual:300}]);assert.equal(built.result[0].employeeId,'gfb')});
+
 test('an otherwise suitable employee without a regular free day ranks later',()=>{const built=rankSuggestions([{id:'no-free',roleKey:'TZ',targetMinutes:600,actual:300,hasFree:false},{id:'with-free',roleKey:'TZ',targetMinutes:600,actual:300,hasFree:true}]);assert.equal(built.result[0].employeeId,'with-free');assert.equal(built.result[0].ranking.hasRegularFreeDay,true)});
+
+test('a regular free day outweighs a small adjustment saving at the same deficit',()=>{const built=rankSuggestions([{id:'with-free',roleKey:'TZ',targetMinutes:600,actual:300,hasFree:true},{id:'no-free',roleKey:'TZ',targetMinutes:600,actual:300,hasFree:false}],['13:00','13:30']);assert.equal(built.result[0].employeeId,'with-free');assert.equal(built.result[0].changeMinutes,60)});
 
 test('GFB ranking has no invented weekly target, difference, or deficit',()=>{const api=loadApi(),ranking=api.getPlanning2CandidateRankingData({employeeId:'gfb',isGfb:true,weeklyTargetMinutes:null,differenceMinutes:0,weeklyActualMinutes:300,changeMinutes:60,hasRegularFreeDay:true});assert.equal(ranking.targetStatus,'gfb');assert.equal(ranking.deficitMinutes,null)});
 

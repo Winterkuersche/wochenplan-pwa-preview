@@ -54,6 +54,32 @@ test('week evaluation consistently exposes the central summary and free-day stat
   assert.equal(evaluation.isGfb, false);
 });
 
+test('a vacation week does not produce a false missing-free-day warning', () => {
+  const resolved = emptyWeek().map(() => ({ type: 'vacation', minutesForMonth: 0 }));
+  const evaluation = loadApi().getPlanning2EmployeeWeekEvaluation({ roleKey: 'TZ', target: '30:00' }, days, resolved);
+  assert.equal(evaluation.freeDay.isApplicable, false);
+  assert.equal(evaluation.hasRegularFreeDay, true);
+  assert.match(evaluation.freeDay.reason, /Nicht-Arbeitstage/);
+});
+
+test('a real six-day working week without a free day keeps the warning', () => {
+  const resolved = emptyWeek().map(() => shift('09:00', '14:00', 300));
+  const evaluation = loadApi().getPlanning2EmployeeWeekEvaluation({ roleKey: 'TZ', target: '30:00' }, days, resolved);
+  assert.equal(evaluation.freeDay.isApplicable, true);
+  assert.equal(evaluation.hasRegularFreeDay, false);
+  assert.equal(evaluation.freeDay.reason, 'Kein regulärer freier Tag');
+});
+
+test('mostly resolved non-work weeks suppress the warning for comparable absence types', () => {
+  for (const type of ['sick', 'holiday', 'external-help', 'absence', 'training', 'school', 'compensatory-leave']) {
+    const resolved = [0, 1, 2, 3].map(() => ({ type, minutesForMonth: 0 }));
+    resolved.push(shift('09:00', '14:00', 300), shift('09:00', '14:00', 300));
+    const evaluation = loadApi().getPlanning2EmployeeWeekEvaluation({ roleKey: 'TZ', target: '30:00' }, days, resolved);
+    assert.equal(evaluation.hasRegularFreeDay, true, type);
+    assert.equal(evaluation.freeDay.isApplicable, false, type);
+  }
+});
+
 test('signed weekly differences format under, exact, and over target for the UI', () => {
   const api = loadApi();
   assert.equal(api.formatPlanning2Difference(-60), '−1:00');
