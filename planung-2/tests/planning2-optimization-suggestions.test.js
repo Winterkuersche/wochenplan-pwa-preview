@@ -6,7 +6,7 @@ const { loadScripts } = require('./test-helpers');
 const centralTime = loadScripts(['time-utils.js']);
 const preview = fs.readFileSync('planung2-preview.html', 'utf8');
 function extract(name) { const start=preview.indexOf(`function ${name}`); assert.notEqual(start,-1,`${name} exists`); let depth=0,open=false; for(let i=start;i<preview.length;i++){if(preview[i]==='{'){depth++;open=true}else if(preview[i]==='}'&&--depth===0&&open)return preview.slice(start,i+1)} throw Error(name) }
-function loadApi(){const c=vm.createContext({iso:d=>d.toISOString().slice(0,10),mins:v=>{const [h,m]=v.split(':').map(Number);return h*60+m},hm:m=>`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,getBusinessRequiredBreakMinutes:centralTime.getBusinessRequiredBreakMinutes,getWorkedMinutesFromRange:centralTime.getWorkedMinutesFromRange});vm.runInContext([
+function loadApi(){const c=vm.createContext({iso:d=>d.toISOString().slice(0,10),mins:v=>{const [h,m]=v.split(':').map(Number);return h*60+m},hm:m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`,getBusinessRequiredBreakMinutes:centralTime.getBusinessRequiredBreakMinutes,getWorkedMinutesFromRange:centralTime.getWorkedMinutesFromRange});vm.runInContext([
  'function resolvedShiftTimes(r){return r?.type==="shift"?{start:r.sourceEntry.start,end:r.sourceEntry.end}:null}',
  'function getPlanning2EmployeeWeekEvaluation(e,d,r){let actual=r.reduce((n,x)=>n+(x.minutesForMonth||0),0),isGfb=e.roleKey==="GFB",target=isGfb?null:(e.targetMinutes??1800),difference=isGfb?0:actual-target;return{weeklyActualMinutes:actual,weeklyTargetMinutes:target,differenceMinutes:difference,isGfb,hasRegularFreeDay:e.hasFree!==false,summary:{actualMinutes:actual,targetMinutes:target,differenceMinutes:difference,isGfb},freeDay:{hasRegularFreeDay:e.hasFree!==false}}}',
  extract('evaluateResolvedDayCoverage'),extract('recalculatePlanning2ShiftTimes'),extract('isPlanning2FullDayShift'),extract('buildPlanning2OptimizationContext'),extract('getPlanning2AllowedAdjustmentTimes'),extract('escapePlanning2Html'),extract('planning2GapResolved'),extract('getPlanning2CandidateRankingData'),extract('comparePlanning2OptimizationCandidates'),extract('buildPlanning2OptimizationSuggestions'),'this.api={buildPlanning2OptimizationContext,buildPlanning2OptimizationSuggestions,getPlanning2AllowedAdjustmentTimes,getPlanning2CandidateRankingData,comparePlanning2OptimizationCandidates,escapePlanning2Html,isPlanning2FullDayShift}'
@@ -87,3 +87,39 @@ test('an existing full-day shift remains valid without approval',()=>{const api=
 test('normal weekly projection uses central worked-minute delta rather than attendance extension',()=>{const api=loadApi(),employees=[{id:'normal',roleKey:'TZ',targetMinutes:600}],resolved=[[shift('09:00','14:30',330)]],context=api.buildPlanning2OptimizationContext(employees,[day],resolved);context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:870,end:930,required:2}]};api.setEvaluate(()=>({ok:true,gaps:[]}));const result=api.buildPlanning2OptimizationSuggestions(context)[0],current=centralTime.getWorkedMinutesFromRange('09:00','14:30',centralTime.getBusinessRequiredBreakMinutes('09:00','14:30')),proposed=centralTime.getWorkedMinutesFromRange('09:00','15:30',centralTime.getBusinessRequiredBreakMinutes('09:00','15:30'));assert.equal(result.changeMinutes,60,'attendance is extended by one hour');assert.equal(result.actualChangeMinutes,proposed-current);assert.equal(result.actualChangeMinutes,0,'the central break transition consumes the attendance extension');assert.equal(result.projectedWeeklyActualMinutes,330);assert.equal(result.projectedDifferenceMinutes,-270)});
 
 test('full-day suggestion impact matches central time rules while preserving special opening boundaries',()=>{for(const start of ['08:55','09:00']){const api=loadApi(),end='19:00',currentEnd='13:00',currentMinutes=centralTime.getWorkedMinutesFromRange(start,currentEnd,centralTime.getBusinessRequiredBreakMinutes(start,currentEnd)),employees=[{id:'approved',roleKey:'TZ',planning2FullDayCandidate:true,targetMinutes:900}],resolved=[[shift(start,currentEnd,currentMinutes)]],context=api.buildPlanning2OptimizationContext(employees,[day],resolved);context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:780,end:1140,required:2}]};api.setEvaluate(entries=>entries[0].sourceEntry.end===end?{ok:true,gaps:[]}:{ok:false,gaps:[{kind:'understaffing',start:780,end:1140}]});const result=api.buildPlanning2OptimizationSuggestions(context)[0],proposedMinutes=centralTime.getWorkedMinutesFromRange(start,end,centralTime.getBusinessRequiredBreakMinutes(start,end));assert.ok(result,`${start}–${end}`);assert.equal(result.proposedStart,start);assert.equal(result.proposedEnd,end);assert.equal(result.actualChangeMinutes,proposedMinutes-currentMinutes);assert.equal(result.projectedWeeklyActualMinutes,currentMinutes+result.actualChangeMinutes)}});
+
+test('special gap boundaries are exact and precede normal grid fallbacks',()=>{
+  const api=loadApi();
+  assert.deepEqual(Array.from(api.getPlanning2AllowedAdjustmentTimes('15:00',1150,'extend-end'),x=>x.time),['19:10','19:00']);
+  assert.deepEqual(Array.from(api.getPlanning2AllowedAdjustmentTimes('10:00',535,'advance-start'),x=>x.time),['08:55','09:00']);
+  assert.ok(!api.getPlanning2AllowedAdjustmentTimes('15:00',1145,'extend-end').some(x=>x.time==='19:10'));
+  assert.ok(!api.getPlanning2AllowedAdjustmentTimes('10:00',540,'advance-start').some(x=>x.time==='08:55'));
+});
+
+test('gap ending at 19:10 proposes exact checkout boundary rather than 19:15',()=>{
+  const api=loadApi(),employees=[{id:'anna',name:'Anna',roleKey:'TZ',planning2FullDayCandidate:true}],resolved=[[shift('09:00','15:00')]],context=api.buildPlanning2OptimizationContext(employees,[day],resolved);
+  context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:900,end:1150,required:2}]};
+  api.setEvaluate(entries=>entries[0].sourceEntry.end==='19:10'?{ok:true,gaps:[]}:{ok:false,gaps:[{kind:'understaffing',start:900,end:1150}]});
+  const result=api.buildPlanning2OptimizationSuggestions(context)[0];
+  assert.equal(result.proposedEnd,'19:10');
+  assert.notEqual(result.proposedEnd,'19:15');
+  const pause=centralTime.getBusinessRequiredBreakMinutes(result.proposedStart,result.proposedEnd);
+  assert.equal(pause,70);
+  assert.equal(centralTime.getWorkedMinutesFromRange(result.proposedStart,result.proposedEnd,pause),540);
+});
+
+test('19:10 full-day approval cannot be bypassed by extending to 19:15',()=>{
+  const api=loadApi(),employees=[{id:'anna',name:'Anna',roleKey:'TZ',planning2FullDayCandidate:false}],resolved=[[shift('09:00','15:00')]],context=api.buildPlanning2OptimizationContext(employees,[day],resolved);
+  context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:900,end:1150,required:2}]};
+  api.setEvaluate(entries=>mins(entries[0].sourceEntry.end)>=1150?{ok:true,gaps:[]}:{ok:false,gaps:[{kind:'understaffing',start:900,end:1150}]});
+  const result=api.buildPlanning2OptimizationSuggestions(context);
+  assert.equal(result.length,0);
+  assert.ok(!result.some(item=>item.proposedEnd==='19:10'||item.proposedEnd==='19:15'));
+});
+
+test('gap starting at 08:55 proposes the exact opening boundary',()=>{
+  const api=loadApi(),employees=[{id:'ben',name:'Ben',roleKey:'TZ',planning2FullDayCandidate:true}],resolved=[[shift('10:00','19:10')]],context=api.buildPlanning2OptimizationContext(employees,[day],resolved);
+  context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:535,end:600,required:2}]};
+  api.setEvaluate(entries=>entries[0].sourceEntry.start==='08:55'?{ok:true,gaps:[]}:{ok:false,gaps:[{kind:'understaffing',start:535,end:600}]});
+  assert.equal(api.buildPlanning2OptimizationSuggestions(context)[0].proposedStart,'08:55');
+});

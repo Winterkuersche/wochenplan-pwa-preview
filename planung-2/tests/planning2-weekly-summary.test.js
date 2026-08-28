@@ -25,10 +25,11 @@ function loadApi(resolvePlanDay = () => ({ minutesForMonth: 0 })) {
     extractFunction('isPlanning2Gfb'),
     extractFunction('getPlanning2EmployeeFreeDayStatus'),
     extractFunction('getPlanning2WeeklyEmployeeSummary'),
+    extractFunction('getPlanning2BranchDayMinutes'),
     extractFunction('getPlanning2BranchWeekMinutes'),
     extractFunction('getPlanning2GfbMonthStatus'),
     extractFunction('getPlanning2GfbMonthMinutes'),
-    'this.api={getPlanning2EmployeeFreeDayStatus,getPlanning2WeeklyEmployeeSummary,getPlanning2BranchWeekMinutes,getPlanning2GfbMonthStatus,getPlanning2GfbMonthMinutes}'
+    'this.api={getPlanning2EmployeeFreeDayStatus,getPlanning2WeeklyEmployeeSummary,getPlanning2BranchDayMinutes,getPlanning2BranchWeekMinutes,getPlanning2GfbMonthStatus,getPlanning2GfbMonthMinutes}'
   ].join(';'), context);
   return context.api;
 }
@@ -123,6 +124,21 @@ test('personal GFB month statuses remain separate and refresh from central day r
   minutes.a = 60;
   assert.equal(api.getPlanning2GfbMonthStatus({}, { id: 'a', roleKey: 'GFB' }, month).gfbMonthActualMinutes, 28 * 60);
   assert.equal(api.getPlanning2GfbMonthStatus({}, { id: 'b', roleKey: 'GFB' }, month).gfbMonthActualMinutes, 28 * 150);
+});
+
+test('branch day counts only resolved local shift minutes and matches the corresponding week sum', () => {
+  const api = loadApi();
+  const day = [
+    { type: 'shift', minutesForBranch: 480, minutes: 510 },
+    { type: 'shift', minutesForBranch: 315, minutes: 360 },
+    { type: 'vacation', minutesForBranch: 0, minutesForMonth: 360 },
+    { type: 'sick', minutesForBranch: 0, minutesForMonth: 300 },
+    { type: 'off', minutesForBranch: 0 },
+    { type: 'holiday', minutesForBranch: 0, minutesForMonth: 240 },
+    { type: 'external-help', minutesForBranch: 0, minutesForMonth: 120 }
+  ];
+  assert.equal(api.getPlanning2BranchDayMinutes(day), 795);
+  assert.equal(api.getPlanning2BranchWeekMinutes([day]), 795);
 });
 
 test('branch week counts only real local shifts', () => {
