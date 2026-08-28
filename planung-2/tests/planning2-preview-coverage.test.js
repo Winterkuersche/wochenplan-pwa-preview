@@ -48,6 +48,38 @@ function shift(start, end) {
   return { type: 'shift', sourceEntry: { type: 'shift', start, end } };
 }
 
+test('a completely closed holiday has no coverage gaps', () => {
+  const { evaluate } = loadCoverage({});
+  const resolution = loadScripts([
+    'holidays.js', 'time-utils.js', 'shift-rules.js', 'date-utils.js',
+    'shift-utils.js', 'status-utils.js', 'absences.js', 'day-resolution.js'
+  ]);
+  const resolved = ['anna', 'ben'].map((id) => resolution.getResolvedDayEntry({
+    employee: { id, target: '8:00' },
+    isoDate: '2026-10-03',
+    schedule: {},
+    absences: [],
+    stateKey: 'schleswig-holstein'
+  }));
+  const result = evaluate(resolved);
+
+  assert.ok(resolved.every((entry) => entry.isHoliday && entry.minutesForBranch === 0));
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.gaps), []);
+  assert.equal(result.kind, 'closed');
+});
+
+test('a normal workday without employees remains understaffed', () => {
+  const { evaluate } = loadCoverage({});
+  const result = evaluate([
+    { type: 'off', isHoliday: false },
+    { type: 'off', isHoliday: false }
+  ]);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.gaps.length > 0);
+});
+
 test('coverage uses every employee resolved shift and refreshes after a changed shift', () => {
   const resolved = {
     opener: shift('08:55', '19:10'),
