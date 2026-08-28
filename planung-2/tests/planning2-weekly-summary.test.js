@@ -25,8 +25,10 @@ function loadApi(resolvePlanDay = () => ({ minutesForMonth: 0 })) {
     extractFunction('isPlanning2Gfb'),
     extractFunction('getPlanning2EmployeeFreeDayStatus'),
     extractFunction('getPlanning2WeeklyEmployeeSummary'),
+    extractFunction('getPlanning2BranchWeekMinutes'),
+    extractFunction('getPlanning2GfbMonthStatus'),
     extractFunction('getPlanning2GfbMonthMinutes'),
-    'this.api={getPlanning2EmployeeFreeDayStatus,getPlanning2WeeklyEmployeeSummary,getPlanning2GfbMonthMinutes}'
+    'this.api={getPlanning2EmployeeFreeDayStatus,getPlanning2WeeklyEmployeeSummary,getPlanning2BranchWeekMinutes,getPlanning2GfbMonthStatus,getPlanning2GfbMonthMinutes}'
   ].join(';'), context);
   return context.api;
 }
@@ -104,4 +106,48 @@ test('normal employees and GFB remain independent in the same calculation', () =
   assert.equal(normal.isUnderTarget, true);
   assert.equal(gfb.actualMinutes, 900);
   assert.equal(gfb.differenceMinutes, 0);
+});
+
+test('personal GFB month statuses remain separate and refresh from central day resolution', () => {
+  const minutes = { a: 90, b: 150 };
+  const api = loadApi((plan, employee) => ({ type: 'shift', minutesForMonth: minutes[employee.id] || 0 }));
+  const month = new Date(2026, 1, 1);
+  const first = api.getPlanning2GfbMonthStatus({}, { id: 'a', roleKey: 'GFB' }, month);
+  const second = api.getPlanning2GfbMonthStatus({}, { id: 'b', roleKey: 'GFB' }, month);
+  assert.equal(first.gfbMonthActualMinutes, 28 * 90);
+  assert.equal(first.gfbMonthLimitMinutes, 2580);
+  assert.equal(first.gfbMonthRemainingMinutes, 60);
+  assert.equal(second.gfbMonthActualMinutes, 28 * 150);
+  assert.equal(second.gfbMonthDifferenceMinutes, 2580 - 28 * 150);
+  assert.equal(second.gfbMonthRemainingMinutes, 0);
+  minutes.a = 60;
+  assert.equal(api.getPlanning2GfbMonthStatus({}, { id: 'a', roleKey: 'GFB' }, month).gfbMonthActualMinutes, 28 * 60);
+  assert.equal(api.getPlanning2GfbMonthStatus({}, { id: 'b', roleKey: 'GFB' }, month).gfbMonthActualMinutes, 28 * 150);
+});
+
+test('branch week counts only real local shifts', () => {
+  const api = loadApi();
+  const resolved = [[
+    { type: 'shift', minutesForMonth: 480, minutesForBranch: 480 },
+    { type: 'vacation', minutesForMonth: 360, minutesForBranch: 0 },
+    { type: 'sick', minutesForMonth: 300, minutesForBranch: 0 },
+    { type: 'off', minutesForMonth: 0, minutesForBranch: 0 },
+    { type: 'holiday', minutesForMonth: 240, minutesForBranch: 0 },
+    { type: 'external-help', minutesForMonth: 120, minutesForBranch: 0 }
+  ]];
+  assert.equal(api.getPlanning2BranchWeekMinutes(resolved), 480);
+  resolved[0][0] = { type: 'shift', minutesForMonth: 540, minutesForBranch: 540 };
+  assert.equal(api.getPlanning2BranchWeekMinutes(resolved), 540);
+});
+
+test('personal GFB month status preserves a negative difference above 43 hours', () => {
+  const api = loadApi(() => ({ type: 'shift', minutesForMonth: 90 }));
+  const status = api.getPlanning2GfbMonthStatus({}, { id: 'over', roleKey: 'GFB' }, new Date(2026, 1, 1));
+  assert.equal(status.gfbMonthActualMinutes, 2520);
+  assert.equal(status.gfbMonthDifferenceMinutes, 60);
+  assert.equal(status.gfbMonthRemainingMinutes, 60);
+  const over = loadApi(() => ({ type: 'shift', minutesForMonth: 100 })).getPlanning2GfbMonthStatus({}, { id: 'over', roleKey: 'GFB' }, new Date(2026, 1, 1));
+  assert.equal(over.gfbMonthActualMinutes, 2800);
+  assert.equal(over.gfbMonthDifferenceMinutes, -220);
+  assert.equal(over.gfbMonthRemainingMinutes, 0);
 });
