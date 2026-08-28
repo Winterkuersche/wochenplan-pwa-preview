@@ -1213,6 +1213,7 @@ function normalizeEmployee(employee, index = 0) {
     vacationDays: Number(employee?.totalVacationDays ?? employee?.vacationDays ?? 30),
     birthDate: employee?.birthDate || "",
     serviceBonus: Boolean(employee?.serviceBonus),
+    planning2FullDayCandidate: employee?.planning2FullDayCandidate === true,
     activeFromMonth: normalizeYearMonth(employee?.activeFromMonth),
     activeToMonth: normalizeYearMonth(employee?.activeToMonth),
     manualMonthActualMinutes: normalizeManualMonthActualMinutes(employee?.manualMonthActualMinutes),
@@ -1338,6 +1339,7 @@ function saveMasterData() {
       vacationDays: Number(emp.totalVacationDays ?? emp.vacationDays ?? 30),
       birthDate: emp.birthDate || "",
       serviceBonus: Boolean(emp.serviceBonus),
+      planning2FullDayCandidate: emp.planning2FullDayCandidate === true,
       activeFromMonth: normalizeYearMonth(emp.activeFromMonth),
       activeToMonth: normalizeYearMonth(emp.activeToMonth),
       manualMonthActualMinutes: normalizeManualMonthActualMinutes(emp.manualMonthActualMinutes)
@@ -1452,6 +1454,7 @@ function defaultMasterState() {
       vacationDays: Number(emp.totalVacationDays ?? emp.vacationDays ?? 30),
       birthDate: emp.birthDate,
       serviceBonus: emp.serviceBonus,
+      planning2FullDayCandidate: emp.planning2FullDayCandidate === true,
       activeFromMonth: normalizeYearMonth(emp.activeFromMonth),
       activeToMonth: normalizeYearMonth(emp.activeToMonth)
     }))
@@ -2953,6 +2956,23 @@ serviceBonusInput.addEventListener("change", () => {
   renderAllViews();
 });
 
+    const planning2FullDayInput = document.createElement("input");
+    planning2FullDayInput.type = "checkbox";
+    planning2FullDayInput.checked = emp.planning2FullDayCandidate === true;
+    planning2FullDayInput.title = "Darf in Planung 2 für Ganztagsschichten vorgeschlagen werden";
+    planning2FullDayInput.addEventListener("change", () => {
+      emp.planning2FullDayCandidate = planning2FullDayInput.checked;
+      saveAppStateDebounced();
+      renderAllViews();
+    });
+
+    const planning2FullDayField = document.createElement("label");
+    planning2FullDayField.className = "teamField teamCheckboxField";
+    const planning2FullDayLabel = document.createElement("span");
+    planning2FullDayLabel.className = "teamFieldLabel";
+    planning2FullDayLabel.textContent = "Planung 2 Ganztag";
+    planning2FullDayField.append(planning2FullDayLabel, planning2FullDayInput);
+
     const activeFromInput = document.createElement("input");
     activeFromInput.type = "month";
     activeFromInput.value = normalizeYearMonth(emp.activeFromMonth);
@@ -3030,6 +3050,7 @@ serviceBonusInput.addEventListener("change", () => {
     row.appendChild(remainingVacationInfo);
     row.appendChild(birthDateInput);
     row.appendChild(serviceBonusInput);
+    row.appendChild(planning2FullDayField);
     row.appendChild(manualMonthButton);
     row.appendChild(removeEmployeeButton);
 
@@ -3098,7 +3119,8 @@ function createEmptyEmployee() {
     birthDate: "",
     activeFromMonth: "",
     activeToMonth: "",
-    serviceBonus: false
+    serviceBonus: false,
+    planning2FullDayCandidate: false
   }, state.employees.length);
 }
 
