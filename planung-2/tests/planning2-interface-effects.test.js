@@ -1,0 +1,16 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const preview = fs.readFileSync('planung2-preview.html', 'utf8');
+function extract(name){const start=preview.indexOf(`function ${name}`);assert.notEqual(start,-1);let depth=0,open=false;for(let i=start;i<preview.length;i++){if(preview[i]==='{'){depth++;open=true}else if(preview[i]==='}'&&--depth===0&&open)return preview.slice(start,i+1)}throw Error(name)}
+const context=vm.createContext({pad:n=>String(n).padStart(2,'0'),hm:n=>`${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`,escapePlanning2Html:value=>String(value).replaceAll('<','&lt;'),encodeURIComponent,JSON});
+vm.runInContext(`${extract('formatPlanning2Difference')};${extract('planning2EmployeeStatsHtml')};${extract('planning2SuggestionHtml')};${extract('planning2SuggestionKey')};this.api={planning2EmployeeStatsHtml,planning2SuggestionHtml,planning2SuggestionKey}`,context);
+const api=context.api;
+
+test('normal employee display labels actual, target, and signed difference',()=>{const html=api.planning2EmployeeStatsHtml({}, {isGfb:false,actualMinutes:1650,targetMinutes:1800,differenceMinutes:-150});assert.match(html,/Ist \/ Soll · 27:30 \/ 30:00/);assert.match(html,/Differenz −2:30/)});
+test('GFB display remains monthly and reports available time without a weekly target',()=>{const html=api.planning2EmployeeStatsHtml({}, {isGfb:true},{gfbMonthActualMinutes:2370,gfbMonthLimitMinutes:2580,gfbMonthRemainingMinutes:210});assert.match(html,/Monats-Ist 39:30 \/ 43:00/);assert.match(html,/3:30 verfügbar/);assert.doesNotMatch(html,/Soll|Woche/)});
+test('full-day badge is conditional on explicit approval in the employee row',()=>{assert.match(extract('render'),/planning2FullDayCandidate===true\?'<span class="fullDayBadge"/);assert.match(preview,/title="Ganztags-Kandidat">GT/)});
+test('normal suggestion shows central weekly projection, signed difference, and coverage reason',()=>{const html=api.planning2SuggestionHtml({employeeName:'Anna',direction:'extend-end',proposedEnd:'14:00',actualChangeMinutes:60,isGfb:false,projectedWeeklyActualMinutes:1680,weeklyTargetMinutes:1800,projectedDifferenceMinutes:-120,understaffingWindow:{start:780,end:845}});assert.match(html,/Anna bis 14:00/);assert.match(html,/\+1:00 · danach 28:00 \/ 30:00 \(−2:00\)/);assert.match(html,/Grundbesetzung 13:00–14:05/)});
+test('GFB suggestion shows the projected monthly value and 43-hour limit',()=>{const html=api.planning2SuggestionHtml({employeeName:'Mia',direction:'extend-end',proposedEnd:'14:00',actualChangeMinutes:60,isGfb:true,gfbMonthActualMinutes:2310,gfbMonthAdditionalMinutes:60,gfbMonthLimitMinutes:2580,understaffingWindow:{start:780,end:840}});assert.match(html,/\+1:00 · danach 39:30 \/ 43:00/)});
+test('freshness identity keeps separate gaps distinct even for otherwise identical proposals',()=>{const base={isoDate:'2026-08-24',employeeId:'a',direction:'extend-end',proposedStart:'09:00',proposedEnd:'14:00'};assert.notEqual(api.planning2SuggestionKey({...base,understaffingWindow:{start:780,end:840}}),api.planning2SuggestionKey({...base,understaffingWindow:{start:810,end:840}}))});
