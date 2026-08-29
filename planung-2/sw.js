@@ -27,6 +27,7 @@ const APP_FILES = [
   "./mep-view.js",
   "./month-view.js",
   "./balance-utils.js",
+  "./monthly-plan-baselines.js",
   "./backup-utils.js",
   "./manual-month-utils.js",
   "./pdf-export.js",

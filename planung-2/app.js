@@ -1353,7 +1353,8 @@ function savePlanData() {
     weekTo: state.weekTo,
     schedule: state.schedule || {},
     absences: state.absences || [],
-    salesByDate: state.salesByDate || {}
+    salesByDate: state.salesByDate || {},
+    monthlyPlanBaselines: normalizeMonthlyPlanBaselines(state.monthlyPlanBaselines)
   });
 }
 
@@ -1467,7 +1468,8 @@ function defaultPlanState() {
     weekTo: "",
     schedule: {},
     absences: [],
-    salesByDate: {}
+    salesByDate: {},
+    monthlyPlanBaselines: {}
   };
 }
 function buildInitialState(options = {}) {
@@ -1506,7 +1508,8 @@ function buildInitialState(options = {}) {
     employees,
     schedule,
     absences,
-    salesByDate
+    salesByDate,
+    monthlyPlanBaselines: normalizeMonthlyPlanBaselines(plan.monthlyPlanBaselines)
   };
 }
 
@@ -2592,7 +2595,8 @@ function importBackupFromObject(backupData) {
   const normalizedPlan = {
     ...normalizedPlanInput,
     schedule: validatedSchedule,
-    absences: normalizeAbsences(normalizedPlanInput.absences || [])
+    absences: normalizeAbsences(normalizedPlanInput.absences || []),
+    monthlyPlanBaselines: normalizeMonthlyPlanBaselines(normalizedPlanInput.monthlyPlanBaselines)
   };
   delete normalizedPlan.salesByDate;
   const normalizedUi = sanitizeUiState(storage[UI_KEY], defaultUiState);

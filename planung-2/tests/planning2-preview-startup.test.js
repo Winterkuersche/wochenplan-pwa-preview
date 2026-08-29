@@ -13,7 +13,8 @@ const expectedDependencies = [
   'shift-utils.js',
   'status-utils.js',
   'absences.js',
-  'day-resolution.js'
+  'day-resolution.js',
+  'monthly-plan-baselines.js'
 ];
 
 function extractFunction(source, name) {
