@@ -10,8 +10,17 @@ const MONTHLY_PLAN_CHANGE = Object.freeze({
   SHIFT_TIME_CHANGED: "SHIFT_TIME_CHANGED",
   SHIFT_ADDED: "SHIFT_ADDED",
   SHIFT_REMOVED: "SHIFT_REMOVED",
+  SHIFT_EXTENDED_END: "SHIFT_EXTENDED_END",
+  SHIFT_SHORTENED_END: "SHIFT_SHORTENED_END",
+  SHIFT_EXTENDED_START: "SHIFT_EXTENDED_START",
+  SHIFT_SHORTENED_START: "SHIFT_SHORTENED_START",
+  SHIFT_MOVED_OR_RESIZED: "SHIFT_MOVED_OR_RESIZED",
+  WORKDAY_ADDED: "WORKDAY_ADDED",
+  WORKDAY_REMOVED: "WORKDAY_REMOVED",
   STATUS_CHANGED: "STATUS_CHANGED"
 });
+
+const MONTHLY_PLAN_CHANGE_ORIGIN = Object.freeze({ NONE: "none", PLANNING: "planning", CIRCUMSTANCE: "circumstance" });
 
 function cloneMonthlyPlanValue(value) {
   if (value === undefined) return undefined;
@@ -171,13 +180,71 @@ function getMonthlyPlanEntryWorkedMinutes(entry) {
 
 function classifyMonthlyPlanChange(baselineEntry, currentEntry) {
   if (JSON.stringify(baselineEntry) === JSON.stringify(currentEntry)) return MONTHLY_PLAN_CHANGE.UNCHANGED;
-  if (!baselineEntry) return currentEntry?.kind === "shift" ? MONTHLY_PLAN_CHANGE.SHIFT_ADDED : MONTHLY_PLAN_CHANGE.ADDED;
-  if (!currentEntry) return baselineEntry.kind === "shift" ? MONTHLY_PLAN_CHANGE.SHIFT_REMOVED : MONTHLY_PLAN_CHANGE.REMOVED;
+  const beforeWorks = isMonthlyPlanWorkEntry(baselineEntry);
+  const afterWorks = isMonthlyPlanWorkEntry(currentEntry);
+  if (!beforeWorks && afterWorks) return MONTHLY_PLAN_CHANGE.WORKDAY_ADDED;
+  if (beforeWorks && !afterWorks && !isMonthlyPlanCircumstance(currentEntry)) return MONTHLY_PLAN_CHANGE.WORKDAY_REMOVED;
+  if (!baselineEntry || !currentEntry) return MONTHLY_PLAN_CHANGE.STATUS_CHANGED;
   if (baselineEntry.kind !== currentEntry.kind) return MONTHLY_PLAN_CHANGE.STATUS_CHANGED;
-  if (baselineEntry.kind === "shift" && (baselineEntry.start !== currentEntry.start || baselineEntry.end !== currentEntry.end)) {
-    return MONTHLY_PLAN_CHANGE.SHIFT_TIME_CHANGED;
+  if (beforeWorks && afterWorks) {
+    const startDifferenceMinutes = monthlyPlanClockMinutes(currentEntry.start) - monthlyPlanClockMinutes(baselineEntry.start);
+    const endDifferenceMinutes = monthlyPlanClockMinutes(currentEntry.end) - monthlyPlanClockMinutes(baselineEntry.end);
+    if (startDifferenceMinutes && endDifferenceMinutes) return MONTHLY_PLAN_CHANGE.SHIFT_MOVED_OR_RESIZED;
+    if (endDifferenceMinutes > 0) return MONTHLY_PLAN_CHANGE.SHIFT_EXTENDED_END;
+    if (endDifferenceMinutes < 0) return MONTHLY_PLAN_CHANGE.SHIFT_SHORTENED_END;
+    if (startDifferenceMinutes < 0) return MONTHLY_PLAN_CHANGE.SHIFT_EXTENDED_START;
+    if (startDifferenceMinutes > 0) return MONTHLY_PLAN_CHANGE.SHIFT_SHORTENED_START;
   }
   return MONTHLY_PLAN_CHANGE.CHANGED;
+}
+
+function isMonthlyPlanWorkEntry(entry) {
+  return entry?.kind === "shift" || entry?.kind === "external-help";
+}
+
+function isMonthlyPlanCircumstance(entry) {
+  return ["sick", "vacation", "holiday"].includes(entry?.kind);
+}
+
+function monthlyPlanClockMinutes(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ""));
+  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
+}
+
+function getMonthlyPlanChangeFacts(baselineEntry, currentEntry) {
+  const changeType = classifyMonthlyPlanChange(baselineEntry, currentEntry);
+  const beforeWorks = isMonthlyPlanWorkEntry(baselineEntry);
+  const afterWorks = isMonthlyPlanWorkEntry(currentEntry);
+  const comparableTimes = beforeWorks && afterWorks;
+  return {
+    type: changeType,
+    changeType,
+    changeOrigin: changeType === MONTHLY_PLAN_CHANGE.UNCHANGED
+      ? MONTHLY_PLAN_CHANGE_ORIGIN.NONE
+      : isMonthlyPlanCircumstance(currentEntry)
+        ? MONTHLY_PLAN_CHANGE_ORIGIN.CIRCUMSTANCE
+        : MONTHLY_PLAN_CHANGE_ORIGIN.PLANNING,
+    // Zeitdifferenzen sind immer "aktuell minus Basis"; ohne zwei Arbeitsschichten gilt null.
+    startDifferenceMinutes: comparableTimes ? monthlyPlanClockMinutes(currentEntry.start) - monthlyPlanClockMinutes(baselineEntry.start) : null,
+    endDifferenceMinutes: comparableTimes ? monthlyPlanClockMinutes(currentEntry.end) - monthlyPlanClockMinutes(baselineEntry.end) : null,
+    workMinutesDifference: getMonthlyPlanEntryWorkedMinutes(currentEntry) - getMonthlyPlanEntryWorkedMinutes(baselineEntry),
+    workdayAdded: !beforeWorks && afterWorks,
+    workdayRemoved: beforeWorks && !afterWorks
+  };
+}
+
+function formatMonthlyPlanChangeDescription(change) {
+  const duration = (minutes) => `${Math.floor(Math.abs(minutes || 0) / 60)}:${String(Math.abs(minutes || 0) % 60).padStart(2, "0")}`;
+  if (!change || change.changeType === MONTHLY_PLAN_CHANGE.UNCHANGED) return "Unverändert";
+  if (change.changeOrigin === MONTHLY_PLAN_CHANGE_ORIGIN.CIRCUMSTANCE) return "Geänderte Rahmenbedingung";
+  if (change.changeType === MONTHLY_PLAN_CHANGE.SHIFT_EXTENDED_END) return `Schicht am Ende um ${duration(change.endDifferenceMinutes)} verlängert`;
+  if (change.changeType === MONTHLY_PLAN_CHANGE.SHIFT_SHORTENED_END) return `Schicht am Ende um ${duration(change.endDifferenceMinutes)} verkürzt`;
+  if (change.changeType === MONTHLY_PLAN_CHANGE.SHIFT_EXTENDED_START) return `Schicht beginnt ${duration(change.startDifferenceMinutes)} früher`;
+  if (change.changeType === MONTHLY_PLAN_CHANGE.SHIFT_SHORTENED_START) return `Schicht beginnt ${duration(change.startDifferenceMinutes)} später`;
+  if (change.changeType === MONTHLY_PLAN_CHANGE.SHIFT_MOVED_OR_RESIZED) return "Schichtbeginn und -ende geändert";
+  if (change.changeType === MONTHLY_PLAN_CHANGE.WORKDAY_ADDED) return "Zusätzlicher Arbeitstag";
+  if (change.changeType === MONTHLY_PLAN_CHANGE.WORKDAY_REMOVED) return "Arbeitstag entfernt";
+  return "Status geändert";
 }
 
 function compareMonthlyPlanToBaseline(yearMonth, appState) {
@@ -195,10 +262,9 @@ function compareMonthlyPlanToBaseline(yearMonth, appState) {
     ids.forEach((employeeId) => {
       const before = baseline.entries[isoDate]?.[employeeId] || null;
       const after = current.entries[isoDate]?.[employeeId] || null;
-      const type = classifyMonthlyPlanChange(before, after);
-      const workMinutesDifference = getMonthlyPlanEntryWorkedMinutes(after) - getMonthlyPlanEntryWorkedMinutes(before);
-      if (type !== MONTHLY_PLAN_CHANGE.UNCHANGED) { changeCount += 1; netWorkMinutes += workMinutesDifference; }
-      changes[isoDate][employeeId] = { type, baseline: cloneMonthlyPlanValue(before), current: cloneMonthlyPlanValue(after), workMinutesDifference };
+      const facts = getMonthlyPlanChangeFacts(before, after);
+      if (facts.changeType !== MONTHLY_PLAN_CHANGE.UNCHANGED) { changeCount += 1; netWorkMinutes += facts.workMinutesDifference; }
+      changes[isoDate][employeeId] = { ...facts, baseline: cloneMonthlyPlanValue(before), current: cloneMonthlyPlanValue(after) };
     });
   });
   return { hasBaseline: true, month: yearMonth, createdAt: baseline.createdAt, changes, changeCount, netWorkMinutes };
@@ -208,5 +274,5 @@ function comparePlanEntryToMonthlyBaseline(isoDate, employeeId, appState) {
   const month = String(isoDate || "").slice(0, 7);
   const comparison = compareMonthlyPlanToBaseline(month, appState);
   if (!comparison.hasBaseline) return { hasBaseline: false, change: null };
-  return { hasBaseline: true, change: comparison.changes?.[isoDate]?.[employeeId] || { type: MONTHLY_PLAN_CHANGE.UNCHANGED, baseline: null, current: null, workMinutesDifference: 0 } };
+  return { hasBaseline: true, change: comparison.changes?.[isoDate]?.[employeeId] || { ...getMonthlyPlanChangeFacts(null, null), baseline: null, current: null } };
 }

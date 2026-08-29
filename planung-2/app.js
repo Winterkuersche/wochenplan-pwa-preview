@@ -2515,7 +2515,11 @@ function triggerBackupDownload(snapshot, filename = `wochenplan-backup-${formatI
 
 function collectPlanning2TransferSnapshot() {
   const planData = loadJson(PLAN_KEY, defaultPlanState());
-  if (planData && typeof planData === "object") delete planData.salesByDate;
+  if (planData && typeof planData === "object") {
+    delete planData.salesByDate;
+    // Monats-Baselines sind ein garantierter Teil der Transfer-Schnittstelle, nicht nur zufälliger Plan-Inhalt.
+    planData.monthlyPlanBaselines = cloneMonthlyPlanValue(planData.monthlyPlanBaselines) || {};
+  }
 
   return {
     format: "wochenplan-planning2-transfer",

@@ -55,20 +55,6 @@
   window.planning2ShowRuntimeError=show;
 })();
 </script>
-<script>
-window.addEventListener('error', function (event) {
-  const id = 'previewRuntimeError';
-  let box = document.getElementById(id);
-  if (!box) {
-    box = document.createElement('div');
-    box.id = id;
-    box.style.cssText = 'margin:10px;padding:10px;border:1px solid #b42318;border-radius:10px;background:#3a1717;color:#fff;font:12px/1.4 monospace;white-space:pre-wrap';
-    const app = document.querySelector('.app');
-    if (app) app.prepend(box);
-  }
-  box.textContent = 'JS-Fehler: ' + (event.message || 'unbekannt') + '\n' + (event.filename || '') + ':' + (event.lineno || '') + ':' + (event.colno || '');
-});
-</script>
 <script src="./holidays.js"></script>
 <script src="./time-utils.js"></script>
 <script src="./shift-rules.js"></script>
@@ -167,7 +153,7 @@ function syncEditorFields(kind){let start=document.getElementById('editStart'),e
 function baselineState(plan,employees){Object.defineProperty(plan,'employees',{value:employees||[],configurable:true,writable:true,enumerable:false});return plan}
 function baselineEntryLabel(entry){if(!entry)return '—';if(entry.kind==='shift')return entry.start+'–'+entry.end;return({off:'Frei',sick:'Krank',vacation:'Urlaub','external-help':'Aushilfe'})[entry.kind]||entry.kind}
 function signedBaselineMinutes(value){if(!value)return '0:00';return(value>0?'+':'−')+hm(Math.abs(value))}
-function openEditor(eid,dayIso,name,existing){editing={eid,dayIso,name,existing};let currentPlan=getTestPlan(),currentMaster=load(PREVIEW_MASTER,{employees:[]}),baselineResult=comparePlanEntryToMonthlyBaseline(dayIso,eid,baselineState(currentPlan,currentMaster.employees));let baselineDetail=document.getElementById('baselineDetail');if(baselineResult.hasBaseline){let change=baselineResult.change;baselineDetail.hidden=false;baselineDetail.innerHTML='<b>Aktuell</b> '+baselineEntryLabel(change.current)+'<br><b>Basisplan</b> '+baselineEntryLabel(change.baseline)+(change.workMinutesDifference?'<br><b>Änderung</b> '+signedBaselineMinutes(change.workMinutesDifference):'')}else baselineDetail.hidden=true;document.getElementById('editorTitle').textContent=name||'Mitarbeiter';document.getElementById('editorSub').textContent=dayIso+(existing?' · vorhandener Eintrag':'');let type=existing?.type==='external-help'?'AH':existing?.code||'FLEX';if(!['FO','G','L','FLEX','AH'].includes(type))type='FLEX';document.getElementById('editType').value=type;syncEditorFields(type);if(existing?.start)document.getElementById('editStart').value=existing.start;if(existing?.end)document.getElementById('editEnd').value=existing.end;if(existing?.branch)document.getElementById('editBranch').value=existing.branch;document.getElementById('editorOverlay').classList.remove('hidden');document.getElementById('editorOverlay').setAttribute('aria-hidden','false')}
+function openEditor(eid,dayIso,name,existing){editing={eid,dayIso,name,existing};let currentPlan=getTestPlan(),currentMaster=load(PREVIEW_MASTER,{employees:[]}),baselineResult=comparePlanEntryToMonthlyBaseline(dayIso,eid,baselineState(currentPlan,currentMaster.employees));let baselineDetail=document.getElementById('baselineDetail');if(baselineResult.hasBaseline){let change=baselineResult.change;baselineDetail.hidden=false;baselineDetail.innerHTML='<b>Aktuell</b> '+baselineEntryLabel(change.current)+'<br><b>Basisplan</b> '+baselineEntryLabel(change.baseline)+'<br><b>Änderung</b> '+formatMonthlyPlanChangeDescription(change)}else baselineDetail.hidden=true;document.getElementById('editorTitle').textContent=name||'Mitarbeiter';document.getElementById('editorSub').textContent=dayIso+(existing?' · vorhandener Eintrag':'');let type=existing?.type==='external-help'?'AH':existing?.code||'FLEX';if(!['FO','G','L','FLEX','AH'].includes(type))type='FLEX';document.getElementById('editType').value=type;syncEditorFields(type);if(existing?.start)document.getElementById('editStart').value=existing.start;if(existing?.end)document.getElementById('editEnd').value=existing.end;if(existing?.branch)document.getElementById('editBranch').value=existing.branch;document.getElementById('editorOverlay').classList.remove('hidden');document.getElementById('editorOverlay').setAttribute('aria-hidden','false')}
 function closeEditor(){editing=null;document.getElementById('editorOverlay').classList.add('hidden');document.getElementById('editorOverlay').setAttribute('aria-hidden','true')}
 function saveCustom(){if(!editing)return;let plan=getTestPlan(),type=document.getElementById('editType').value,start=document.getElementById('editStart').value,end=document.getElementById('editEnd').value,checkout=document.getElementById('editCheckout').value,branch=document.getElementById('editBranch').value.trim();if(type==='G'){start='09:00';end=checkout}else if(type==='L'){end=checkout}else if(type==='FO'){start='08:55'}if(!start||!end||mins(end)<=mins(start)){alert('Bitte gültige Start- und Endzeit wählen.');return}if(type==='AH'){clearDay(plan,editing.eid,editing.dayIso);plan.schedule[editing.dayIso]=plan.schedule[editing.dayIso]||{};plan.schedule[editing.dayIso][editing.eid]={type:'external-help',status:'external',label:'AH',branch,externalHelp:true,start,end,pause:0,breakMinutes:0,minutes:Math.max(0,mins(end)-mins(start))};persist(plan,'AH eingetragen');return}putEntry(plan,editing.eid,editing.dayIso,makeShift(type,start,end,type==='FO'?'early':type==='G'?'full':type==='L'?'late':'flex'));persist(plan,'Schicht gespeichert')}
 function deleteCurrent(){if(!editing)return;let plan=getTestPlan();clearDay(plan,editing.eid,editing.dayIso);persist(plan,'Eintrag gelöscht')}

@@ -165,7 +165,7 @@ test('preview imports a transfer without reading or overwriting live storage', (
 test('normal app transfer contains only cloned master and current plan data', () => {
   const values = {
     wochenplan_master_v10: { employees: [{ id: 'employee-1' }] },
-    wochenplan_plan_v10: { schedule: {}, absences: [], salesByDate: { secret: 1 } }
+    wochenplan_plan_v10: { schedule: {}, absences: [], salesByDate: { secret: 1 }, monthlyPlanBaselines: {'2026-09':{month:'2026-09',createdAt:'published',entries:{}}} }
   };
   const context = vm.createContext({
     MASTER_KEY: 'wochenplan_master_v10',
@@ -173,6 +173,7 @@ test('normal app transfer contains only cloned master and current plan data', ()
     Date,
     defaultMasterState: () => ({ employees: [] }),
     defaultPlanState: () => ({ schedule: {}, absences: [] }),
+    cloneMonthlyPlanValue: (value) => structuredClone(value),
     loadJson: (key, fallback) => structuredClone(values[key] ?? fallback)
   });
   vm.runInContext(`${extractFunction(app, 'collectPlanning2TransferSnapshot')};this.snapshot=collectPlanning2TransferSnapshot()`, context);
@@ -181,6 +182,16 @@ test('normal app transfer contains only cloned master and current plan data', ()
   assert.equal(snapshot.format, 'wochenplan-planning2-transfer');
   assert.equal(snapshot.version, 1);
   assert.deepEqual(snapshot.master, values.wochenplan_master_v10);
-  assert.deepEqual(snapshot.plan, { schedule: {}, absences: [] });
+  assert.deepEqual(snapshot.plan, { schedule: {}, absences: [], monthlyPlanBaselines: values.wochenplan_plan_v10.monthlyPlanBaselines });
   assert.deepEqual(Object.keys(snapshot).sort(), ['createdAt', 'format', 'master', 'plan', 'version']);
+});
+
+test('normal app transfer and preview normalization preserve monthly baselines exactly', () => {
+  const baselines = {'2026-09':{month:'2026-09',createdAt:'published',entries:{'2026-09-30':{a:{kind:'shift',start:'09:00',end:'14:00'}}}}};
+  const transfer = {format:'wochenplan-planning2-transfer',version:1,master:{employees:[{id:'a',name:'A'}]},plan:{schedule:{},absences:[],monthlyPlanBaselines:baselines}};
+  const result = startPreview();
+  result.context.transfer = structuredClone(transfer);
+  vm.runInContext('importPlanning2Data(transfer);getTestPlan()', result.context);
+  const imported = JSON.parse(result.storage.get('wochenplan_plan_v10_planning2_preview'));
+  assert.deepEqual(imported.monthlyPlanBaselines, baselines);
 });
