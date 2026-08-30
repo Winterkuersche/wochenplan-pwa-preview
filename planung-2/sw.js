@@ -13,6 +13,7 @@ const APP_FILES = [
   "./version.js",
   "./holidays.js",
   "./time-utils.js",
+  "./employee-availability.js",
   "./shift-rules.js",
   "./date-utils.js",
   "./shift-utils.js",

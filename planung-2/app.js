@@ -1214,6 +1214,9 @@ function normalizeEmployee(employee, index = 0) {
     birthDate: employee?.birthDate || "",
     serviceBonus: Boolean(employee?.serviceBonus),
     planning2FullDayCandidate: employee?.planning2FullDayCandidate === true,
+    availability: normalizeEmployeeAvailability(employee?.availability),
+    timePreference: normalizeEmployeeTimePreference(employee?.timePreference),
+    flexibleWeekDistribution: employee?.flexibleWeekDistribution === true,
     activeFromMonth: normalizeYearMonth(employee?.activeFromMonth),
     activeToMonth: normalizeYearMonth(employee?.activeToMonth),
     manualMonthActualMinutes: normalizeManualMonthActualMinutes(employee?.manualMonthActualMinutes),
@@ -1340,6 +1343,9 @@ function saveMasterData() {
       birthDate: emp.birthDate || "",
       serviceBonus: Boolean(emp.serviceBonus),
       planning2FullDayCandidate: emp.planning2FullDayCandidate === true,
+      availability: normalizeEmployeeAvailability(emp.availability),
+      timePreference: normalizeEmployeeTimePreference(emp.timePreference),
+      flexibleWeekDistribution: emp.flexibleWeekDistribution === true,
       activeFromMonth: normalizeYearMonth(emp.activeFromMonth),
       activeToMonth: normalizeYearMonth(emp.activeToMonth),
       manualMonthActualMinutes: normalizeManualMonthActualMinutes(emp.manualMonthActualMinutes)
@@ -1456,6 +1462,9 @@ function defaultMasterState() {
       birthDate: emp.birthDate,
       serviceBonus: emp.serviceBonus,
       planning2FullDayCandidate: emp.planning2FullDayCandidate === true,
+      availability: normalizeEmployeeAvailability(emp.availability),
+      timePreference: normalizeEmployeeTimePreference(emp.timePreference),
+      flexibleWeekDistribution: emp.flexibleWeekDistribution === true,
       activeFromMonth: normalizeYearMonth(emp.activeFromMonth),
       activeToMonth: normalizeYearMonth(emp.activeToMonth)
     }))
@@ -2981,6 +2990,113 @@ serviceBonusInput.addEventListener("change", () => {
     planning2FullDayLabel.textContent = "Planung 2 Ganztag";
     planning2FullDayField.append(planning2FullDayLabel, planning2FullDayInput);
 
+    const availabilityDetails = document.createElement("details");
+    availabilityDetails.className = "employeeAvailability";
+    const availabilitySummary = document.createElement("summary");
+    availabilitySummary.textContent = "Verfügbarkeit & Präferenz";
+    availabilityDetails.appendChild(availabilitySummary);
+
+    const availabilityPanel = document.createElement("div");
+    availabilityPanel.className = "employeeAvailabilityPanel";
+    const commitAvailability = () => {
+      emp.availability = normalizeEmployeeAvailability(emp.availability);
+      saveAppStateDebounced();
+    };
+    const makeLimitFields = (limit, onChange) => {
+      const fields = document.createElement("div");
+      fields.className = "availabilityLimitFields";
+      [["time", "earliestStart", "Frühestens"], ["time", "latestEnd", "Spätestens"], ["number", "maxShiftHours", "Max. Dauer (h)"]].forEach(([type, key, label]) => {
+        const field = document.createElement("label");
+        field.textContent = label;
+        const input = document.createElement("input");
+        input.type = type;
+        input.step = type === "time" ? "300" : "0.25";
+        input.min = type === "number" ? "0.25" : "";
+        input.value = key === "maxShiftHours" ? (limit.maxShiftMinutes ? limit.maxShiftMinutes / 60 : "") : (limit[key] || "");
+        input.addEventListener("change", () => {
+          if (key === "maxShiftHours") limit.maxShiftMinutes = input.value ? Number(input.value) * 60 : 0;
+          else limit[key] = input.value;
+          onChange();
+        });
+        field.appendChild(input);
+        fields.appendChild(field);
+      });
+      return fields;
+    };
+
+    emp.availability = normalizeEmployeeAvailability(emp.availability);
+    const preferenceRow = document.createElement("div");
+    preferenceRow.className = "availabilityPreferenceRow";
+    const preferenceField = document.createElement("label");
+    preferenceField.textContent = "Zeitpräferenz";
+    const preferenceSelect = document.createElement("select");
+    [["early", "Früh"], ["late", "Spät"], ["any", "Egal"]].forEach(([value, label]) => preferenceSelect.add(new Option(label, value)));
+    preferenceSelect.value = normalizeEmployeeTimePreference(emp.timePreference);
+    preferenceSelect.addEventListener("change", () => { emp.timePreference = preferenceSelect.value; saveAppStateDebounced(); });
+    preferenceField.appendChild(preferenceSelect);
+    const flexibleField = document.createElement("label");
+    flexibleField.className = "availabilityFlexibleField";
+    const flexibleInput = document.createElement("input");
+    flexibleInput.type = "checkbox";
+    flexibleInput.checked = emp.flexibleWeekDistribution === true;
+    flexibleInput.addEventListener("change", () => { emp.flexibleWeekDistribution = flexibleInput.checked; saveAppStateDebounced(); });
+    flexibleField.append(flexibleInput, "Flexible Wochenverteilung");
+    preferenceRow.append(preferenceField, flexibleField);
+    availabilityPanel.appendChild(preferenceRow);
+
+    const generalHeading = document.createElement("h4");
+    generalHeading.textContent = "Allgemeine harte Grenzen";
+    availabilityPanel.append(generalHeading, makeLimitFields(emp.availability.general, commitAvailability));
+
+    const weekdayDetails = document.createElement("details");
+    weekdayDetails.innerHTML = "<summary>Abweichungen nach Wochentag</summary>";
+    const weekdayNames = { 1: "Montag", 2: "Dienstag", 3: "Mittwoch", 4: "Donnerstag", 5: "Freitag", 6: "Samstag", 0: "Sonntag" };
+    EMPLOYEE_AVAILABILITY_WEEKDAYS.forEach((weekday) => {
+      const row = document.createElement("div");
+      row.className = "availabilityOverrideRow";
+      const enabled = document.createElement("input");
+      enabled.type = "checkbox";
+      enabled.checked = Object.prototype.hasOwnProperty.call(emp.availability.weekdays, String(weekday));
+      const label = document.createElement("strong");
+      label.textContent = weekdayNames[weekday];
+      const limit = emp.availability.weekdays[String(weekday)] || {};
+      const fields = makeLimitFields(limit, () => { emp.availability.weekdays[String(weekday)] = limit; enabled.checked = true; commitAvailability(); });
+      enabled.addEventListener("change", () => { if (enabled.checked) emp.availability.weekdays[String(weekday)] = limit; else delete emp.availability.weekdays[String(weekday)]; commitAvailability(); });
+      row.append(enabled, label, fields);
+      weekdayDetails.appendChild(row);
+    });
+    availabilityPanel.appendChild(weekdayDetails);
+
+    const dateHeading = document.createElement("h4");
+    dateHeading.textContent = "Ausnahmen für konkrete Daten";
+    const dateList = document.createElement("div");
+    const renderDateRows = () => {
+      dateList.innerHTML = "";
+      Object.entries(emp.availability.dates).sort().forEach(([isoDate, limit]) => {
+        const row = document.createElement("div"); row.className = "availabilityDateRow";
+        const dateInput = document.createElement("input"); dateInput.type = "date"; dateInput.value = isoDate;
+        dateInput.addEventListener("change", () => { if (!dateInput.value) return; delete emp.availability.dates[isoDate]; emp.availability.dates[dateInput.value] = limit; commitAvailability(); renderDateRows(); });
+        const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Entfernen";
+        remove.addEventListener("click", () => { delete emp.availability.dates[isoDate]; commitAvailability(); renderDateRows(); });
+        row.append(dateInput, makeLimitFields(limit, commitAvailability), remove); dateList.appendChild(row);
+      });
+    };
+    const addDate = document.createElement("button"); addDate.type = "button"; addDate.textContent = "Datumsausnahme hinzufügen";
+    addDate.addEventListener("click", () => {
+      const date = new Date();
+      let isoDate = toIsoDate(date);
+      while (Object.prototype.hasOwnProperty.call(emp.availability.dates, isoDate)) {
+        date.setDate(date.getDate() + 1);
+        isoDate = toIsoDate(date);
+      }
+      emp.availability.dates[isoDate] = {};
+      commitAvailability();
+      renderDateRows();
+    });
+    renderDateRows();
+    availabilityPanel.append(dateHeading, dateList, addDate);
+    availabilityDetails.appendChild(availabilityPanel);
+
     const activeFromInput = document.createElement("input");
     activeFromInput.type = "month";
     activeFromInput.value = normalizeYearMonth(emp.activeFromMonth);
@@ -3059,6 +3175,7 @@ serviceBonusInput.addEventListener("change", () => {
     row.appendChild(birthDateInput);
     row.appendChild(serviceBonusInput);
     row.appendChild(planning2FullDayField);
+    row.appendChild(availabilityDetails);
     row.appendChild(manualMonthButton);
     row.appendChild(removeEmployeeButton);
 
@@ -3128,7 +3245,10 @@ function createEmptyEmployee() {
     activeFromMonth: "",
     activeToMonth: "",
     serviceBonus: false,
-    planning2FullDayCandidate: false
+    planning2FullDayCandidate: false,
+    availability: { general: {}, weekdays: {}, dates: {} },
+    timePreference: "any",
+    flexibleWeekDistribution: false
   }, state.employees.length);
 }
 

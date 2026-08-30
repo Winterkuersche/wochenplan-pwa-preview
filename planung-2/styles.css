@@ -385,6 +385,28 @@ select {
   margin: 0;
 }
 
+.employeeAvailability {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.employeeAvailability > summary { cursor: pointer; font-weight: 800; }
+.employeeAvailabilityPanel { display: grid; gap: 12px; padding-top: 12px; }
+.employeeAvailabilityPanel h4 { margin: 0; }
+.availabilityPreferenceRow, .availabilityLimitFields { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.availabilityPreferenceRow label, .availabilityLimitFields label { display: grid; gap: 4px; min-width: 120px; }
+.availabilityFlexibleField { display: flex !important; align-items: center; min-height: 44px; }
+.availabilityOverrideRow, .availabilityDateRow { display: grid; grid-template-columns: auto 90px 1fr auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.availabilityDateRow { grid-template-columns: minmax(140px, auto) 1fr auto; }
+
+@media (max-width: 640px) {
+  .availabilityOverrideRow, .availabilityDateRow { grid-template-columns: auto 1fr; }
+  .availabilityOverrideRow .availabilityLimitFields, .availabilityDateRow .availabilityLimitFields { grid-column: 1 / -1; }
+  .availabilityLimitFields label, .availabilityLimitFields input { width: 100%; }
+}
+
 /* =============================
    URLAUB / TAGESPLANUNG
    ============================= */

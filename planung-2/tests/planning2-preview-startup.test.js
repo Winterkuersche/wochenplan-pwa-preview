@@ -6,8 +6,9 @@ const vm = require('node:vm');
 const preview = fs.readFileSync('planung2-preview.html', 'utf8');
 const app = fs.readFileSync('app.js', 'utf8');
 const expectedDependencies = [
-  'holidays.js',
-  'time-utils.js',
+    'holidays.js',
+    'time-utils.js',
+    'employee-availability.js',
   'shift-rules.js',
   'date-utils.js',
   'shift-utils.js',
