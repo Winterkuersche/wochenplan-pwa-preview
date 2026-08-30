@@ -467,3 +467,26 @@ test('candidate 2 workload ignores scheduled hours hidden by a resolved absence'
   assert.equal(plan.schedule['2026-04-10'].absentLow.end, '19:10');
   assert.equal(plan.schedule['2026-04-10'].actuallyHigh.end, '19:00');
 });
+
+test('saved-day autofix skips an individually closed day when aligning the previous closing team', () => {
+  const plan = {
+    closedDates: ['2026-04-08'],
+    schedule: {
+      '2026-04-07': {
+        a: shift('09:00', '19:00'),
+        b: shift('09:00', '19:10')
+      },
+      '2026-04-09': {
+        a: shift('09:00', '15:00'),
+        b: shift('09:00', '15:00')
+      }
+    },
+    absences: []
+  };
+
+  applySavedDay(plan, [employee('a', 'TL'), employee('b')], '2026-04-09');
+
+  assert.equal(plan.schedule['2026-04-07'].a.end, '19:10');
+  assert.equal(plan.schedule['2026-04-09'].a.start, '08:55');
+  assert.equal(plan.schedule['2026-04-08'], undefined);
+});
