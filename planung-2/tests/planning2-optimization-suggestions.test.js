@@ -4,12 +4,13 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { loadScripts } = require('./test-helpers');
 const centralTime = loadScripts(['time-utils.js']);
+const availability = loadScripts(['time-utils.js','employee-availability.js']);
 const preview = fs.readFileSync('planung2-preview.html', 'utf8');
 function extract(name) { const start=preview.indexOf(`function ${name}`); assert.notEqual(start,-1,`${name} exists`); let depth=0,open=false; for(let i=start;i<preview.length;i++){if(preview[i]==='{'){depth++;open=true}else if(preview[i]==='}'&&--depth===0&&open)return preview.slice(start,i+1)} throw Error(name) }
-function loadApi(){const c=vm.createContext({iso:d=>d.toISOString().slice(0,10),mins:v=>{const [h,m]=v.split(':').map(Number);return h*60+m},hm:m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`,getBusinessRequiredBreakMinutes:centralTime.getBusinessRequiredBreakMinutes,getWorkedMinutesFromRange:centralTime.getWorkedMinutesFromRange,getMonthlyPlanChangeFacts:(before,current)=>({changeType:current.start===before?.start?'SHIFT_EXTENDED_END':'SHIFT_EXTENDED_START',startDifferenceMinutes:before?c.mins(current.start)-c.mins(before.start):null,endDifferenceMinutes:before?c.mins(current.end)-c.mins(before.end):null,workMinutesDifference:before?(c.mins(current.end)-c.mins(current.start))-(c.mins(before.end)-c.mins(before.start)):c.mins(current.end)-c.mins(current.start)})});vm.runInContext([
+function loadApi(){const c=vm.createContext({iso:d=>d.toISOString().slice(0,10),mins:v=>{const [h,m]=v.split(':').map(Number);return h*60+m},hm:m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`,validateShiftAgainstEmployeeAvailability:availability.validateShiftAgainstEmployeeAvailability,getBusinessRequiredBreakMinutes:centralTime.getBusinessRequiredBreakMinutes,getWorkedMinutesFromRange:centralTime.getWorkedMinutesFromRange,getMonthlyPlanChangeFacts:(before,current)=>({changeType:current.start===before?.start?'SHIFT_EXTENDED_END':'SHIFT_EXTENDED_START',startDifferenceMinutes:before?c.mins(current.start)-c.mins(before.start):null,endDifferenceMinutes:before?c.mins(current.end)-c.mins(before.end):null,workMinutesDifference:before?(c.mins(current.end)-c.mins(current.start))-(c.mins(before.end)-c.mins(before.start)):c.mins(current.end)-c.mins(current.start)})});vm.runInContext([
  'function resolvedShiftTimes(r){return r?.type==="shift"?{start:r.sourceEntry.start,end:r.sourceEntry.end}:null}',
  'function getPlanning2EmployeeWeekEvaluation(e,d,r){let actual=r.reduce((n,x)=>n+(x.minutesForMonth||0),0),isGfb=e.roleKey==="GFB",target=isGfb?null:(e.targetMinutes??1800),difference=isGfb?0:actual-target;return{weeklyActualMinutes:actual,weeklyTargetMinutes:target,differenceMinutes:difference,isGfb,hasRegularFreeDay:e.hasFree!==false,summary:{actualMinutes:actual,targetMinutes:target,differenceMinutes:difference,isGfb},freeDay:{hasRegularFreeDay:e.hasFree!==false}}}',
- extract('evaluateResolvedDayCoverage'),extract('recalculatePlanning2ShiftTimes'),extract('isPlanning2FullDayShift'),extract('buildPlanning2OptimizationContext'),extract('getPlanning2AllowedAdjustmentTimes'),extract('escapePlanning2Html'),extract('planning2GapResolved'),extract('getPlanning2CandidateRankingData'),extract('comparePlanning2OptimizationCandidates'),extract('planning2ProblemId'),extract('getPlanning2CandidateBaselineChange'),extract('planning2GapOverlapMinutes'),extract('getPlanning2CoverageFacts'),extract('planning2DaysUntilShift'),extract('buildPlanning2CandidateFeatureProfile'),extract('summarizePlanning2CandidateRejections'),extract('generatePlanning2CandidateEvaluation'),extract('buildPlanning2ProblemCandidateGroups'),extract('getPlanning2CandidateRankingFeatures'),extract('planning2ExplanationMinutes'),extract('describePlanning2Candidate'),extract('generatePlanning2Candidates'),extract('rankPlanning2Candidates'),extract('getPlanning2CandidatesForProblem'),extract('buildPlanning2OptimizationSuggestions'),'this.api={buildPlanning2OptimizationContext,buildPlanning2OptimizationSuggestions,generatePlanning2Candidates,generatePlanning2CandidateEvaluation,buildPlanning2CandidateFeatureProfile,buildPlanning2ProblemCandidateGroups,summarizePlanning2CandidateRejections,getPlanning2CandidateRankingFeatures,describePlanning2Candidate,planning2DaysUntilShift,rankPlanning2Candidates,getPlanning2CandidatesForProblem,getPlanning2AllowedAdjustmentTimes,getPlanning2CandidateRankingData,comparePlanning2OptimizationCandidates,escapePlanning2Html,isPlanning2FullDayShift}'
+ extract('evaluateResolvedDayCoverage'),extract('recalculatePlanning2ShiftTimes'),extract('isPlanning2FullDayShift'),extract('buildPlanning2OptimizationContext'),extract('getPlanning2AllowedAdjustmentTimes'),extract('escapePlanning2Html'),extract('planning2GapResolved'),extract('getPlanning2CandidateRankingData'),extract('comparePlanning2OptimizationCandidates'),extract('planning2ProblemId'),extract('getPlanning2CandidateBaselineChange'),extract('planning2GapOverlapMinutes'),extract('getPlanning2CoverageFacts'),extract('planning2DaysUntilShift'),extract('buildPlanning2CandidateFeatureProfile'),extract('summarizePlanning2CandidateRejections'),extract('generatePlanning2ExistingShiftMutationEvaluation'),extract('generatePlanning2CandidateEvaluation'),extract('buildPlanning2ProblemCandidateGroups'),extract('getPlanning2CandidateRankingFeatures'),extract('planning2ExplanationMinutes'),extract('describePlanning2Candidate'),extract('generatePlanning2Candidates'),extract('rankPlanning2Candidates'),extract('getPlanning2CandidatesForProblem'),extract('buildPlanning2OptimizationSuggestions'),'this.api={generatePlanning2ExistingShiftMutationEvaluation,buildPlanning2OptimizationContext,buildPlanning2OptimizationSuggestions,generatePlanning2Candidates,generatePlanning2CandidateEvaluation,buildPlanning2CandidateFeatureProfile,buildPlanning2ProblemCandidateGroups,summarizePlanning2CandidateRejections,getPlanning2CandidateRankingFeatures,describePlanning2Candidate,planning2DaysUntilShift,rankPlanning2Candidates,getPlanning2CandidatesForProblem,getPlanning2AllowedAdjustmentTimes,getPlanning2CandidateRankingData,comparePlanning2OptimizationCandidates,escapePlanning2Html,isPlanning2FullDayShift}'
 ].join(';'),c);c.api.setEvaluate=fn=>{c.evaluateResolvedDayCoverage=fn};return c.api}
 const day=new Date('2026-08-24T00:00:00Z');
 const shift=(start,end,minutesForMonth=0)=>({type:'shift',minutesForMonth,sourceEntry:{type:'shift',start,end}});
@@ -150,4 +151,45 @@ test('gap starting at 08:55 proposes the exact opening boundary',()=>{
   context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:535,end:600,required:2}]};
   api.setEvaluate(entries=>entries[0].sourceEntry.start==='08:55'?{ok:true,gaps:[]}:{ok:false,gaps:[{kind:'understaffing',start:535,end:600}]});
   assert.equal(api.buildPlanning2OptimizationSuggestions(context)[0].proposedStart,'08:55');
+});
+
+test('Stage C generates resize, reposition and removal candidates on the complete grid',()=>{
+  const api=loadApi(),context=api.buildPlanning2OptimizationContext([{id:'a',roleKey:'TZ'}],[day],[[shift('09:00','15:00',360)]]);
+  context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:960,end:1140}]};
+  api.setEvaluate(entries=>entries[0]?.sourceEntry?{ok:false,gaps:[{kind:'understaffing',start:960,end:1140}]}:{ok:true,gaps:[]});
+  const result=api.generatePlanning2ExistingShiftMutationEvaluation(context),all=[...result.candidates,...result.rejected];
+  for(const [start,end] of [['10:00','15:00'],['09:00','14:00'],['08:55','15:00'],['09:00','19:10'],['10:00','16:00'],['12:00','18:00'],['13:15','19:10']])assert.ok(all.some(x=>x.proposedStart===start&&x.proposedEnd===end),`${start}-${end}`);
+  assert.ok(all.some(x=>x.mutationType==='SHIFT_REMOVE'&&x.mutations[0].after===null));
+  assert.ok(all.some(x=>x.mutationType==='SHIFT_REPOSITION'));
+  assert.ok(all.filter(x=>x.proposedStart).every(x=>['08:55','19:10'].includes(x.proposedStart)||(Number(x.proposedStart.slice(0,2))*60+Number(x.proposedStart.slice(3)))%15===0));
+  assert.ok(result.rejected.some(x=>x.constraintResults.violations.some(v=>v.rule==='MIN_SHIFT_DURATION')));
+});
+
+test('Stage C mutation facts preserve work deltas and do not mutate their context',()=>{
+  const api=loadApi(),context=api.buildPlanning2OptimizationContext([{id:'g',roleKey:'GFB'}],[day],[[shift('09:00','15:00',360)]],{g:{gfbMonthActualMinutes:2410,gfbMonthLimitMinutes:2580,gfbMonthRemainingMinutes:170}}),snapshot=JSON.stringify(context);
+  context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:960,end:1140}]};const stable=JSON.stringify(context);
+  api.setEvaluate(()=>({ok:true,gaps:[]}));const result=api.generatePlanning2ExistingShiftMutationEvaluation(context),all=[...result.candidates,...result.rejected],longer=all.find(x=>x.proposedStart==='09:00'&&x.proposedEnd==='19:10'),shorter=all.find(x=>x.proposedStart==='09:00'&&x.proposedEnd==='12:00'),remove=all.find(x=>x.mutationType==='SHIFT_REMOVE');
+  assert.ok(longer.constraintResults.violations.some(v=>v.rule==='GFB_MONTH_LIMIT'));
+  assert.ok(shorter.gfbMonthAdditionalMinutes<0);assert.equal(remove.workMinutesAfter,0);assert.equal(remove.createsRealFreeDay,true);assert.equal(remove.mutations[0].after,null);assert.equal(JSON.stringify(context),stable);assert.notEqual(snapshot,stable);
+});
+
+test('Stage C treats an existing shift as gap-independent plan material',()=>{
+  const api=loadApi(),context=api.buildPlanning2OptimizationContext([{id:'a',roleKey:'TZ'}],[day],[[shift('09:00','15:00',360)]]);context.days[0].coverage={ok:true,gaps:[]};api.setEvaluate(()=>({ok:true,gaps:[]}));
+  const result=api.generatePlanning2ExistingShiftMutationEvaluation(context),all=[...result.candidates,...result.rejected],candidate=all.find(x=>x.proposedStart==='13:15'&&x.proposedEnd==='19:10');
+  assert.ok(candidate);assert.equal(candidate.problemId,'2026-08-24|existing-shift|a');assert.equal(JSON.stringify(candidate.problemContext),JSON.stringify({type:'EXISTING_SHIFT_MUTATION',isoDate:'2026-08-24',employeeId:'a'}));assert.equal(candidate.understaffingWindow,null);
+});
+
+test('Stage C never generates arbitrary non-grid boundaries',()=>{
+  const api=loadApi(),context=api.buildPlanning2OptimizationContext([{id:'a',roleKey:'TZ'}],[day],[[shift('09:00','15:00',360)]]);context.days[0].coverage={ok:true,gaps:[]};api.setEvaluate(()=>({ok:true,gaps:[]}));
+  const all=[...api.generatePlanning2ExistingShiftMutationEvaluation(context).candidates,...api.generatePlanning2ExistingShiftMutationEvaluation(context).rejected],times=all.flatMap(x=>[x.proposedStart,x.proposedEnd]).filter(Boolean);
+  for(const forbidden of ['13:10','14:05','17:20'])assert.ok(!times.includes(forbidden),forbidden);assert.ok(times.every(time=>['08:55','19:10'].includes(time)||(Number(time.slice(0,2))*60+Number(time.slice(3)))%15===0));
+});
+
+test('Stage C applies central availability boundaries and maximum duration without the full-day opt-in',()=>{
+  const employee={id:'a',roleKey:'TZ',planning2FullDayCandidate:false,availability:{general:{earliestStart:'10:00',latestEnd:'19:10',maxShiftMinutes:360}}},api=loadApi(),context=api.buildPlanning2OptimizationContext([employee],[day],[[shift('09:00','15:00',360)]]);
+  context.days[0].coverage={ok:false,gaps:[{kind:'understaffing',start:960,end:1150}]};api.setEvaluate(()=>({ok:true,gaps:[]}));
+  const result=api.generatePlanning2ExistingShiftMutationEvaluation(context),all=[...result.candidates,...result.rejected],full=all.find(x=>x.proposedStart==='08:55'&&x.proposedEnd==='19:10'),valid=all.find(x=>x.proposedStart==='13:00'&&x.proposedEnd==='19:00');
+  assert.ok(full.constraintResults.violations.some(v=>v.rule==='EMPLOYEE_AVAILABILITY'&&v.code==='BEFORE_AVAILABILITY'));
+  assert.ok(full.constraintResults.violations.some(v=>v.rule==='EMPLOYEE_AVAILABILITY'&&v.code==='MAX_SHIFT_DURATION'));
+  assert.equal(valid.availabilityResult.valid,true);assert.ok(!valid.constraintResults.violations.some(v=>v.rule==='FULL_DAY_NOT_ALLOWED'));
 });

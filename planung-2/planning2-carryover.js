@@ -98,7 +98,9 @@ function evaluatePlanning2CandidateFollowUpRules(candidate, context) {
   const simulated = JSON.parse(JSON.stringify(plan));
   (candidate?.mutations || []).forEach(mutation => {
     const entry = simulated.schedule?.[mutation.isoDate]?.[mutation.employeeId];
-    if (entry?.type === "shift") {
+    if (entry?.type === "shift" && mutation.after === null) {
+      delete simulated.schedule[mutation.isoDate][mutation.employeeId];
+    } else if (entry?.type === "shift") {
       simulated.schedule[mutation.isoDate][mutation.employeeId] = { ...entry, ...mutation.after };
     } else if (!entry && mutation.after?.type === "shift") {
       simulated.schedule = simulated.schedule || {};
