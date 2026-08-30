@@ -53,7 +53,7 @@ class FakeElement {
   click() {}
 }
 
-function startPreview(initialValues = {}) {
+function startPreview(initialValues = {}, options = {}) {
   const storage = new Map(Object.entries(initialValues));
   const elements = {};
   for (const match of preview.matchAll(/id="([^"]+)"/g)) {
@@ -92,7 +92,21 @@ function startPreview(initialValues = {}) {
   const dependencies = scripts.map((match) => match[1]).filter(Boolean);
   for (const [index, match] of scripts.entries()) {
     const filename = match[1] || `planung2-preview-inline-${index}.js`;
-    const source = match[1] ? fs.readFileSync(match[1], 'utf8') : match[2];
+    let source = match[1] ? fs.readFileSync(match[1], 'utf8') : match[2];
+    if (!match[1] && options.instrumentOptimization && source.includes('function generatePlanning2CandidateEvaluation')) {
+      const marker = "let p=getTestPlan();if(p.weekFrom)";
+      const instrumentation = `
+window.__planning2OptimizationCalls={candidateEvaluation:0,mutationPackages:0,problemGroups:0};
+const __generatePlanning2CandidateEvaluation=generatePlanning2CandidateEvaluation;
+generatePlanning2CandidateEvaluation=function(...args){window.__planning2OptimizationCalls.candidateEvaluation+=1;return __generatePlanning2CandidateEvaluation(...args)};
+const __generatePlanning2MutationPackages=generatePlanning2MutationPackages;
+generatePlanning2MutationPackages=function(...args){window.__planning2OptimizationCalls.mutationPackages+=1;return __generatePlanning2MutationPackages(...args)};
+const __buildPlanning2ProblemCandidateGroups=buildPlanning2ProblemCandidateGroups;
+buildPlanning2ProblemCandidateGroups=function(...args){window.__planning2OptimizationCalls.problemGroups+=1;return __buildPlanning2ProblemCandidateGroups(...args)};
+`;
+      assert.ok(source.includes(marker), 'startup marker for optimization instrumentation should exist');
+      source = source.replace(marker, instrumentation + marker);
+    }
     vm.runInContext(source, context, { filename });
   }
 
@@ -197,4 +211,69 @@ test('normal app transfer and preview normalization preserve monthly baselines e
   vm.runInContext('importPlanning2Data(transfer);getTestPlan()', result.context);
   const imported = JSON.parse(result.storage.get('wochenplan_plan_v10_planning2_preview'));
   assert.deepEqual(imported.monthlyPlanBaselines, baselines);
+});
+
+
+function planning2RuntimeFixture(employeeCount = 6) {
+  const employees = Array.from({ length: employeeCount }, (_, index) => ({
+    id: `employee-${index + 1}`,
+    name: `Mitarbeiter ${index + 1}`,
+    roleKey: index === 0 ? 'TL' : index === 1 ? 'GFB' : 'TZ',
+    target: index === 1 ? '0:00' : '30:00'
+  }));
+  const schedule = {};
+  for (let day = 24; day <= 29; day += 1) {
+    const isoDate = `2026-08-${day}`;
+    schedule[isoDate] = Object.fromEntries(employees.map((employee, index) => [employee.id, {
+      type: 'shift',
+      code: index % 2 ? 'S' : 'F3',
+      start: index % 2 ? '13:00' : '08:55',
+      end: index % 2 ? '19:10' : '15:00',
+      minutes: 330
+    }]));
+  }
+  return {
+    wochenplan_master_v10_planning2_preview: JSON.stringify({ employees }),
+    wochenplan_plan_v10_planning2_preview: JSON.stringify({
+      weekFrom: '2026-08-24',
+      weekTo: '2026-08-29',
+      schedule,
+      absences: []
+    })
+  };
+}
+
+test('normal Planning 2 startup and render never execute the optimization generators', () => {
+  const result = startPreview(planning2RuntimeFixture(), { instrumentOptimization: true });
+  const calls = () => JSON.parse(JSON.stringify(result.context.window.__planning2OptimizationCalls));
+
+  assert.deepEqual(calls(), { candidateEvaluation: 0, mutationPackages: 0, problemGroups: 0 });
+  vm.runInContext('activeWeek=4;render()', result.context);
+  assert.deepEqual(calls(), { candidateEvaluation: 0, mutationPackages: 0, problemGroups: 0 });
+});
+
+test('large full-week render builds plan facts without entering candidate or package generation', () => {
+  const result = startPreview(planning2RuntimeFixture(8), { instrumentOptimization: true });
+  vm.runInContext('activeWeek=4;render()', result.context);
+
+  assert.match(result.elements.grid.innerHTML, /Mitarbeiter 8/);
+  assert.match(result.elements.grid.innerHTML, /08:55–15:00/);
+  assert.match(result.elements.grid.innerHTML, /13:00–19:10/);
+  assert.notEqual(result.elements.tz.textContent, '—');
+  assert.notEqual(result.elements.branchWeek.textContent, '—');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.context.window.__planning2OptimizationCalls)),
+    { candidateEvaluation: 0, mutationPackages: 0, problemGroups: 0 }
+  );
+});
+
+test('Planning2OptimizationDebug.start explicitly executes the complete candidate and package pipeline', () => {
+  const result = startPreview(planning2RuntimeFixture(2), { instrumentOptimization: true });
+  vm.runInContext('activeWeek=4;window.Planning2OptimizationDebug.start()', result.context);
+  const calls = JSON.parse(JSON.stringify(result.context.window.__planning2OptimizationCalls));
+
+  assert.ok(calls.candidateEvaluation >= 1, 'Stage B/C candidate evaluation should run explicitly');
+  assert.equal(calls.mutationPackages, 1, 'Stage D package generation should run explicitly');
+  assert.equal(calls.problemGroups, 1, 'candidate problem grouping should run explicitly');
+  assert.equal(vm.runInContext('window.Planning2OptimizationDebug.isActive()', result.context), true);
 });
