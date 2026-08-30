@@ -98,7 +98,13 @@ function evaluatePlanning2CandidateFollowUpRules(candidate, context) {
   const simulated = JSON.parse(JSON.stringify(plan));
   (candidate?.mutations || []).forEach(mutation => {
     const entry = simulated.schedule?.[mutation.isoDate]?.[mutation.employeeId];
-    if (entry?.type === "shift") simulated.schedule[mutation.isoDate][mutation.employeeId] = { ...entry, ...mutation.after };
+    if (entry?.type === "shift") {
+      simulated.schedule[mutation.isoDate][mutation.employeeId] = { ...entry, ...mutation.after };
+    } else if (!entry && mutation.after?.type === "shift") {
+      simulated.schedule = simulated.schedule || {};
+      simulated.schedule[mutation.isoDate] = simulated.schedule[mutation.isoDate] || {};
+      simulated.schedule[mutation.isoDate][mutation.employeeId] = { ...mutation.after };
+    }
   });
   const dates = [...new Set((candidate?.mutations || []).flatMap(mutation => [mutation.isoDate, nextPlanning2RelevantWorkday(mutation.isoDate, simulated)]))];
   const resolveShift = (workingPlan, employee, isoDate) => {

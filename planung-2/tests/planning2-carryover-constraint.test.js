@@ -56,3 +56,13 @@ test('unchanged pre-existing violation does not reject, changed violation does, 
   const fixes={mutations:[{isoDate:'2026-10-06',employeeId:'normal',before:{start:'08:55',end:'15:00'},after:{start:'09:00',end:'15:00'}},{isoDate:'2026-10-06',employeeId:'tl',before:{start:'09:00',end:'15:00'},after:{start:'08:55',end:'15:00'}}]};
   result=carryover.evaluatePlanning2CandidateFollowUpRules(fixes,{sourcePlan:value,sourceEmployees:employees,resolveWorkShift});assert.equal(result.valid,true);assert.deepEqual(result.introducedViolations,[]);
 });
+
+test('empty-to-work closing mutation is simulated on a copy and enters carryover validation',()=>{
+  const value={schedule:{'2026-10-05':{},'2026-10-06':{tl:shift('09:00','15:00')}},absences:[]},before=JSON.stringify(value);
+  const candidate={mutations:[{isoDate:'2026-10-05',employeeId:'tl',before:null,after:{type:'shift',start:'16:00',end:'19:10'}}]};
+  const result=carryover.evaluatePlanning2CandidateFollowUpRules(candidate,{sourcePlan:value,sourceEmployees:employees,resolveWorkShift:(workingPlan,employee,isoDate)=>workingPlan.schedule?.[isoDate]?.[employee.id]||null});
+  assert.equal(result.valid,false);
+  assert.ok(result.violations.some(v=>v.rule==='CARRYOVER_OPENER_RULE'));
+  assert.equal(result.requiredFollowUpMutations[0].after.start,'08:55');
+  assert.equal(JSON.stringify(value),before);
+});
