@@ -16,7 +16,8 @@ const expectedDependencies = [
   'absences.js',
   'day-resolution.js',
   'monthly-plan-baselines.js',
-  'planning2-carryover.js'
+  'planning2-carryover.js',
+  'planning2-mutation-packages.js'
 ];
 
 function extractFunction(source, name) {

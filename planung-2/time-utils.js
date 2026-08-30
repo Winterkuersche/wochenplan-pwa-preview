@@ -20,6 +20,18 @@ function hmToMinutes(hm) {
   return hhmmToMinutes(hm);
 }
 
+// Shared Planning-2 boundary set for candidate stages B-D.
+function getPlanning2AllowedPlanMinutes() {
+  const values = [535];
+  for (let minute = 540; minute <= 1140; minute += 15) values.push(minute);
+  values.push(1150);
+  return values;
+}
+
+function isPlanning2AllowedPlanTime(value) {
+  return getPlanning2AllowedPlanMinutes().includes(hhmmToMinutes(value));
+}
+
 function minutesToHM(min) {
   const numeric = Number(min);
   const safeMinutes = Number.isNaN(numeric) ? 0 : Math.max(0, Math.round(numeric));
