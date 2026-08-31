@@ -17,7 +17,9 @@ const expectedDependencies = [
   'day-resolution.js',
   'monthly-plan-baselines.js',
   'planning2-carryover.js',
-  'planning2-mutation-packages.js'
+  'planning2-mutation-packages.js',
+  'planning2-playground-state.js',
+  'planning2-playground-ui.js'
 ];
 
 function extractFunction(source, name) {
