@@ -1722,33 +1722,11 @@ function getEmployeeTargetMinutes(employee) {
 }
 
 function isGfbEmployee(employee) {
-  if (!employee) return false;
-  return String(employee.roleKey || "").trim().toUpperCase() === "GFB";
+  return isPlanning2DomainGfbEmployee(employee);
 }
 
 function getEmployeeContractTargetMinutesPerMonth(employee) {
-  if (!employee) return 0;
-
-  if (isGfbEmployee(employee)) {
-    return 43 * 60;
-  }
-
-  const individualTargetMinutes = Number(employee.contractTargetMinutesPerMonth);
-  if (Number.isFinite(individualTargetMinutes) && individualTargetMinutes > 0) {
-    return Math.round(individualTargetMinutes);
-  }
-
-  const contractModelTargetMinutes = getContractModelTargetMinutesPerMonth(employee.contractModel || employee.roleKey || "");
-  if (Number.isFinite(contractModelTargetMinutes) && contractModelTargetMinutes > 0) {
-    return Math.round(contractModelTargetMinutes);
-  }
-
-  const weeklyTargetMinutes = getEmployeeTargetMinutes(employee);
-  if (weeklyTargetMinutes > 0) {
-    return Math.round((weeklyTargetMinutes * 52) / 12);
-  }
-
-  return 0;
+  return getPlanning2DomainContractTargetMinutesPerMonth(employee);
 }
 
 function getEmployeePlannedMinutesForWeek(employee, weekDays = getActiveWeekDays()) {

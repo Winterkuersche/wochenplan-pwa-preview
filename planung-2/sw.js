@@ -20,6 +20,7 @@ const APP_FILES = [
   "./status-utils.js",
   "./contract-models.js",
   "./absences.js",
+  "./planning2-domain-helpers.js",
   "./vacation-utils.js",
   "./day-resolution.js",
   "./month-engine.js",
