@@ -2,11 +2,13 @@
 (function (root) {
   const STORAGE_KEY = "wochenplan_planning2_playground_v1";
   const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  const stableValue = value => Array.isArray(value) ? value.map(stableValue) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])])) : value;
+  const planSignature = plan => JSON.stringify(stableValue(plan || {}));
   const todayIso = (now = new Date()) => new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   function mondayIso(iso) { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() - (d.getDay() || 7) + 1); return todayIso(d); }
   function createSession({ month, plan, selectedWeeks = [], now = new Date() }) {
     const createdAt = now.toISOString(), seed = createdAt.replace(/\D/g, "").slice(0, 17);
-    return { version: 1, id: `p2pg_${month}_${seed}`, month, createdAt, updatedAt: createdAt, source: "current-plan", selectedWeeks: [...new Set(selectedWeeks)].sort(), workingPlan: clone(plan || {}), basePlan: clone(plan || {}), variants: [], selectedVariantId: "", optimization: { status: "idle", error: "" }, locks: [], nextLockSequence: 1 };
+    return { version: 1, id: `p2pg_${month}_${seed}`, month, createdAt, updatedAt: createdAt, source: "current-plan", sourcePlanSignature: planSignature(plan), selectedWeeks: [...new Set(selectedWeeks)].sort(), workingPlan: clone(plan || {}), basePlan: clone(plan || {}), variants: [], selectedVariantId: "", optimization: { status: "idle", error: "" }, locks: [], nextLockSequence: 1 };
   }
   const lockKey = lock => [lock.scope, lock.employeeId || "", lock.isoDate || "", lock.weekId || ""].join("|");
   function addLock(session, lock, options = {}) {
@@ -34,7 +36,7 @@
     return { changed: true, automaticLock, outsideSelectedWeek: automaticLock.outsideSelectedWeek };
   }
   function setSelectedWeeks(session, ids) { session.selectedWeeks = [...new Set(ids)].sort(); session.locks.forEach(lock => { lock.outsideSelectedWeek = Boolean(lock.isoDate && !session.selectedWeeks.includes(mondayIso(lock.isoDate))); }); }
-  function hydrate(value) { if (!value || value.version !== 1) return null; value.basePlan ||= clone(value.workingPlan || {}); value.variants ||= []; value.selectedVariantId ||= ""; value.optimization ||= { status: "idle", error: "" }; value.variants.forEach(variant => { variant.optimizationBasePlan ||= clone(value.basePlan); }); const selected = value.variants.find(variant => variant.variantId === value.selectedVariantId); if (selected) value.workingPlan = clone(selected.workingPlan); return value; }
+  function hydrate(value) { if (!value || value.version !== 1) return null; value.basePlan ||= clone(value.workingPlan || {}); value.sourcePlanSignature ||= planSignature(value.basePlan); value.variants ||= []; value.selectedVariantId ||= ""; value.optimization ||= { status: "idle", error: "" }; value.variants.forEach(variant => { variant.optimizationBasePlan ||= clone(value.basePlan); }); const selected = value.variants.find(variant => variant.variantId === value.selectedVariantId); if (selected) value.workingPlan = clone(selected.workingPlan); return value; }
   function createRepository(storage) { return { load() { try { return hydrate(JSON.parse(storage.getItem(STORAGE_KEY))); } catch { return null; } }, save(session) { storage.setItem(STORAGE_KEY, JSON.stringify(session)); return session; }, discard() { storage.removeItem(STORAGE_KEY); } }; }
-  const api = { STORAGE_KEY, addLock, clone, commitWorkingPlan, createRepository, createSession, getConstraint, hydrate, mondayIso, removeLock, setSelectedWeeks, setWorkingEntry, todayIso }; if (typeof module !== "undefined" && module.exports) module.exports = api; root.Planning2PlaygroundState = api;
+  const api = { STORAGE_KEY, addLock, clone, commitWorkingPlan, createRepository, createSession, getConstraint, hydrate, mondayIso, planSignature, removeLock, setSelectedWeeks, setWorkingEntry, todayIso }; if (typeof module !== "undefined" && module.exports) module.exports = api; root.Planning2PlaygroundState = api;
 })(typeof window !== "undefined" ? window : globalThis);

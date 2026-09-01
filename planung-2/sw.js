@@ -36,6 +36,8 @@ const APP_FILES = [
   "./app-orchestration.js",
   "./planning2-playground-state.js",
   "./planning2-playground-workflow.js",
+  "./planning2-optimization-history.js",
+  "./planning2-playground-acceptance.js",
   "./planning2-playground-ui.js",
   "./app.js"
 ];
