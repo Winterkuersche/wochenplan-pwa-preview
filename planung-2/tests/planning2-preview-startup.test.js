@@ -20,6 +20,7 @@ const expectedDependencies = [
   'monthly-plan-baselines.js',
   'planning2-carryover.js',
   'planning2-mutation-packages.js',
+  'planning2-targeted-suggestions.js',
   'planning2-playground-state.js',
   'planning2-playground-optimizer.js',
   'planning2-playground-workflow.js',

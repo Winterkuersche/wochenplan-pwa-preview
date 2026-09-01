@@ -21,6 +21,7 @@ const APP_FILES = [
   "./contract-models.js",
   "./absences.js",
   "./planning2-domain-helpers.js",
+  "./planning2-targeted-suggestions.js",
   "./vacation-utils.js",
   "./day-resolution.js",
   "./month-engine.js",
