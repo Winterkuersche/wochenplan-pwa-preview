@@ -35,3 +35,24 @@ test('editor cancel has no playground commit callback and fast mode remains expl
   assert.match(preview, /if\(editing\?\.onCommit\)/);
   assert.doesNotMatch(ui, /generatePlanning2CandidateEvaluation|generatePlanning2MutationPackages|buildPlanning2ProblemCandidateGroups/);
 });
+
+test('E4 controls are explicit, bounded, touchable and keep running variants visible', () => {
+  assert.match(ui, /data-optimize/); assert.match(ui, /data-optimize-from-here/); assert.match(ui, /slice\(0, 3\)/);
+  assert.match(ui, /role="tab"/); assert.match(ui, /data-variant/); assert.match(ui, /Varianten vergleichen/);
+  assert.match(ui, /session\.optimization\.status === "running"/); assert.match(ui, /Bestehender Spielplatz bleibt erhalten/);
+  assert.match(ui, /data-unlock=/); assert.match(ui, /aria-label="Fixierung lösen"/); assert.match(ui, /hardConstraintResult\?\.allowed === false/);
+  assert.doesNotMatch(ui, /shiftKey|ctrlKey|metaKey|altKey|dblclick|contextmenu/);
+});
+
+test('opening, rendering, tab selection, comparison and manual editing never run optimization', () => {
+  assert.match(ui, /workflow\.optimize\(session/);
+  assert.match(ui, /target\.hasAttribute\("data-optimize"\)/);
+  assert.doesNotMatch(ui, /openButton\.onclick[^\n]*workflow\.optimize/);
+  assert.equal([...ui.matchAll(/workflow\.optimize\(session/g)].length, 1);
+  assert.match(ui, /workflow\.reevaluateSelected\(session, evaluateVariant\)/);
+});
+
+test('comparison renders persisted E3 facts rather than calculating a UI score', () => {
+  for (const fact of ['variantFacts', 'explanationFacts', 'externalHelpHints', 'understaffingMinutes', 'employeesInMinus', 'gfbRemainingMinutes', 'outsideSelectedWeekChangeCount']) assert.match(ui, new RegExp(fact));
+  assert.doesNotMatch(ui, /compareDomainFacts|rankingVector|score\s*[=:(]/i);
+});

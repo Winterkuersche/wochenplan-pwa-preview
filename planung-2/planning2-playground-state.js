@@ -6,7 +6,7 @@
   function mondayIso(iso) { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() - (d.getDay() || 7) + 1); return todayIso(d); }
   function createSession({ month, plan, selectedWeeks = [], now = new Date() }) {
     const createdAt = now.toISOString(), seed = createdAt.replace(/\D/g, "").slice(0, 17);
-    return { version: 1, id: `p2pg_${month}_${seed}`, month, createdAt, updatedAt: createdAt, source: "current-plan", selectedWeeks: [...new Set(selectedWeeks)].sort(), workingPlan: clone(plan || {}), locks: [], nextLockSequence: 1 };
+    return { version: 1, id: `p2pg_${month}_${seed}`, month, createdAt, updatedAt: createdAt, source: "current-plan", selectedWeeks: [...new Set(selectedWeeks)].sort(), workingPlan: clone(plan || {}), basePlan: clone(plan || {}), variants: [], selectedVariantId: "", optimization: { status: "idle", error: "" }, locks: [], nextLockSequence: 1 };
   }
   const lockKey = lock => [lock.scope, lock.employeeId || "", lock.isoDate || "", lock.weekId || ""].join("|");
   function addLock(session, lock, options = {}) {
@@ -27,11 +27,14 @@
     if (constraint.locked && !(constraint.reason === "shift" && constraint.lock.origin === "automatic-manual")) return { changed: false, reason: constraint.reason };
     if (JSON.stringify(session.workingPlan) === JSON.stringify(nextPlan)) return { changed: false, reason: "unchanged" };
     session.workingPlan = clone(nextPlan);
+    const variant = (session.variants || []).find(item => item.variantId === session.selectedVariantId);
+    if (variant) { variant.workingPlan = clone(nextPlan); variant.manuallyEdited = true; }
     const automaticLock = addLock(session, { scope: "shift", employeeId, isoDate }, { origin: "automatic-manual" });
     session.updatedAt = (options.now || new Date()).toISOString();
     return { changed: true, automaticLock, outsideSelectedWeek: automaticLock.outsideSelectedWeek };
   }
   function setSelectedWeeks(session, ids) { session.selectedWeeks = [...new Set(ids)].sort(); session.locks.forEach(lock => { lock.outsideSelectedWeek = Boolean(lock.isoDate && !session.selectedWeeks.includes(mondayIso(lock.isoDate))); }); }
-  function createRepository(storage) { return { load() { try { const value = JSON.parse(storage.getItem(STORAGE_KEY)); return value?.version === 1 ? value : null; } catch { return null; } }, save(session) { storage.setItem(STORAGE_KEY, JSON.stringify(session)); return session; }, discard() { storage.removeItem(STORAGE_KEY); } }; }
-  const api = { STORAGE_KEY, addLock, clone, commitWorkingPlan, createRepository, createSession, getConstraint, mondayIso, removeLock, setSelectedWeeks, setWorkingEntry, todayIso }; if (typeof module !== "undefined" && module.exports) module.exports = api; root.Planning2PlaygroundState = api;
+  function hydrate(value) { if (!value || value.version !== 1) return null; value.basePlan ||= clone(value.workingPlan || {}); value.variants ||= []; value.selectedVariantId ||= ""; value.optimization ||= { status: "idle", error: "" }; value.variants.forEach(variant => { variant.optimizationBasePlan ||= clone(value.basePlan); }); const selected = value.variants.find(variant => variant.variantId === value.selectedVariantId); if (selected) value.workingPlan = clone(selected.workingPlan); return value; }
+  function createRepository(storage) { return { load() { try { return hydrate(JSON.parse(storage.getItem(STORAGE_KEY))); } catch { return null; } }, save(session) { storage.setItem(STORAGE_KEY, JSON.stringify(session)); return session; }, discard() { storage.removeItem(STORAGE_KEY); } }; }
+  const api = { STORAGE_KEY, addLock, clone, commitWorkingPlan, createRepository, createSession, getConstraint, hydrate, mondayIso, removeLock, setSelectedWeeks, setWorkingEntry, todayIso }; if (typeof module !== "undefined" && module.exports) module.exports = api; root.Planning2PlaygroundState = api;
 })(typeof window !== "undefined" ? window : globalThis);

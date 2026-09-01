@@ -42,6 +42,7 @@ function applyPlanning2MutationsToPlan(sourcePlan, mutations) {
   mutations.forEach(mutation => {
     plan.schedule[mutation.isoDate] = plan.schedule[mutation.isoDate] || {};
     if (mutation.after === null) delete plan.schedule[mutation.isoDate][mutation.employeeId];
+    else if (mutation.after.type && mutation.after.type !== "shift") plan.schedule[mutation.isoDate][mutation.employeeId] = planning2PackageClone(mutation.after);
     else {
       const current = plan.schedule[mutation.isoDate][mutation.employeeId];
       const template = current?.type === "shift" ? current : { type: "shift", status: "work", code: "FLEX", shiftKey: "FLEX", mode: "flex", shiftType: "flex" };
@@ -64,7 +65,7 @@ function planning2PackageCoverage(context, mutations) {
     const entries = planning2PackageClone(day.resolvedEntries || []);
     mutations.filter(m => m.isoDate === isoDate).forEach(m => {
       const index = (context.employees || []).findIndex(person => String(person.employeeId) === String(m.employeeId)); if (index < 0) return;
-      entries[index] = m.after === null ? { type: "empty" } : { type: "shift", sourceEntry: { type: "shift", ...m.after }, minutesForMonth: planning2PackageMinutes(m.after), minutesForBranch: planning2PackageMinutes(m.after) };
+      entries[index] = m.after === null ? { type: "empty" } : m.after.type && m.after.type !== "shift" ? { type: m.after.type, status: m.after.status, sourceEntry: planning2PackageClone(m.after), minutesForMonth: 0, minutesForBranch: 0 } : { type: "shift", sourceEntry: { type: "shift", ...m.after }, minutesForMonth: planning2PackageMinutes(m.after), minutesForBranch: planning2PackageMinutes(m.after) };
     });
     const before = planning2PackageClone(day.coverage || { gaps: [] });
     const after = typeof context.evaluateCoverage === "function" ? context.evaluateCoverage(entries, isoDate) : typeof evaluateResolvedDayCoverage === "function" ? evaluateResolvedDayCoverage(entries) : before;
@@ -84,14 +85,15 @@ function simulatePlanning2MutationPackage(context, input) {
   const normalized = normalizePlanning2PackageMutations(input?.mutations || []), mutations = normalized.mutations;
   const violations = normalized.violations.slice(), sourcePlan = context?.sourcePlan || { schedule: {} };
   const employees = context?.employees || [], sourceEmployees = context?.sourceEmployees || employees.map(p => p.sourceEmployee || { id: p.employeeId });
+  const manualPlanDiff = input?.packageType === "PLAYGROUND_MANUAL";
   mutations.forEach(mutation => {
     const employee = employees.find(p => String(p.employeeId) === String(mutation.employeeId));
     const current = sourcePlan.schedule?.[mutation.isoDate]?.[mutation.employeeId] || null;
     const contextDay = (context.days || []).find(day => day.isoDate === mutation.isoDate), employeeIndex = employees.indexOf(employee), resolved = contextDay?.resolvedEntries?.[employeeIndex];
-    if (mutation.before !== null && (!current || current.type !== "shift")) violations.push({ rule: "STALE_MUTATION_BEFORE", isoDate: mutation.isoDate, employeeId: mutation.employeeId });
+    if (mutation.before !== null && (manualPlanDiff ? JSON.stringify(current) !== JSON.stringify(mutation.before) : (!current || current.type !== "shift"))) violations.push({ rule: "STALE_MUTATION_BEFORE", isoDate: mutation.isoDate, employeeId: mutation.employeeId });
     if (mutation.before === null && current && current.type !== "shift") violations.push({ rule: "PROTECTED_STATUS", isoDate: mutation.isoDate, employeeId: mutation.employeeId, status: current.type });
-    if (mutation.after && resolved && !["empty", "shift"].includes(resolved.type) && resolved.status !== "work") violations.push({ rule: "PROTECTED_STATUS", isoDate: mutation.isoDate, employeeId: mutation.employeeId, status: resolved.type || resolved.status });
-    if (mutation.after) {
+    if (!manualPlanDiff && mutation.after && resolved && !["empty", "shift"].includes(resolved.type) && resolved.status !== "work") violations.push({ rule: "PROTECTED_STATUS", isoDate: mutation.isoDate, employeeId: mutation.employeeId, status: resolved.type || resolved.status });
+    if (mutation.after?.type === "shift" || mutation.after && !mutation.after.type) {
       if (!planning2PackageValidBoundary(mutation.after.start) || !planning2PackageValidBoundary(mutation.after.end)) violations.push({ rule: "INVALID_TIME_GRID", isoDate: mutation.isoDate, employeeId: mutation.employeeId });
       const minutes = planning2PackageMinutes(mutation.after);
       if (minutes < 180) violations.push({ rule: "MINIMUM_SHIFT_DURATION", isoDate: mutation.isoDate, employeeId: mutation.employeeId, minutes });
@@ -111,7 +113,7 @@ function simulatePlanning2MutationPackage(context, input) {
     const mondayOf = isoDate => { const date = new Date(`${isoDate}T00:00:00Z`), weekday = date.getUTCDay() || 7; date.setUTCDate(date.getUTCDate() + 1 - weekday); return date.toISOString().slice(0, 10); };
     const relevantDays = (context.days || []).filter(day => { const weekday = new Date(`${day.isoDate}T00:00:00Z`).getUTCDay(); return weekday >= 1 && weekday <= 6; }), weeks = new Map();
     relevantDays.forEach(day => { const monday = mondayOf(day.isoDate); if (!weeks.has(monday)) weeks.set(monday, []); weeks.get(monday).push(day); });
-    const weekFacts = [...weeks].map(([weekMonday, days]) => { const freeDates = days.filter(day => { const mutation = employeeMutations.find(m => m.isoDate === day.isoDate); if (mutation) return mutation.after === null; const index = employees.indexOf(person), entry = day.resolvedEntries?.[index]; return !entry || entry.type === "empty" || entry.type === "off" || entry.status === "off"; }).map(day => day.isoDate); return { weekMonday, freeDatesAfter: freeDates, hasRealFreeDay: freeDates.length > 0 }; });
+    const weekFacts = [...weeks].map(([weekMonday, days]) => { const freeDates = days.filter(day => { const mutation = employeeMutations.find(m => m.isoDate === day.isoDate); if (mutation) return mutation.after === null || mutation.after?.type === "off" || mutation.after?.status === "off"; const index = employees.indexOf(person), entry = day.resolvedEntries?.[index]; return !entry || entry.type === "empty" || entry.type === "off" || entry.status === "off"; }).map(day => day.isoDate); return { weekMonday, freeDatesAfter: freeDates, hasRealFreeDay: freeDates.length > 0 }; });
     const freeFact = { employeeId, weeks: weekFacts, freeDatesAfter: weekFacts.flatMap(week => week.freeDatesAfter), hasRealFreeDay: weekFacts.every(week => week.hasRealFreeDay) }; freeDayFacts.push(freeFact);
     weekFacts.filter(week => !week.hasRealFreeDay).forEach(week => violations.push({ rule: "REAL_FREE_DAY_REQUIRED", employeeId, weekMonday: week.weekMonday }));
     if (person?.evaluation?.isGfb) {

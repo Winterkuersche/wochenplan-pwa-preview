@@ -2,9 +2,10 @@
 
 (function installPlanning2PlaygroundUi() {
   const api = window.Planning2PlaygroundState;
+  const workflow = window.Planning2PlaygroundWorkflow;
   const LIVE_PLAN_KEY = "wochenplan_plan_v10_planning2_preview";
   const MASTER_KEY = "wochenplan_master_v10_planning2_preview";
-  if (!api) return;
+  if (!api || !workflow) return;
 
   const repository = api.createRepository(localStorage);
   let session = null;
@@ -53,6 +54,28 @@
     return entry ? entry.code || entry.type : "—";
   }
 
+  const minutesLabel = value => `${Math.floor(Math.abs(Number(value) || 0) / 60)}:${String(Math.abs(Number(value) || 0) % 60).padStart(2, "0")} Std.`;
+  function employeesForMonth() {
+    return (readJson(MASTER_KEY, { employees: [] }).employees || []).filter(employee => (!employee.activeFromMonth || session.month >= employee.activeFromMonth) && (!employee.activeToMonth || session.month <= employee.activeToMonth));
+  }
+  function optimizerContext(plan) {
+    const employees = employeesForMonth();
+    const dates = getMonthWeeks(session.month).flatMap(week => week.days).filter((day, index, all) => day.startsWith(session.month) && all.indexOf(day) === index).map(day => new Date(`${day}T00:00:00Z`));
+    const resolved = employees.map(employee => dates.map(day => getResolvedDayEntry({ employee, isoDate: api.todayIso(day), schedule: plan.schedule || {}, absences: plan.absences || [], stateKey: plan.stateKey || "schleswig-holstein" })));
+    const context = buildPlanning2OptimizationContext(employees, dates, resolved, {}, {}, plan, new Date());
+    context.yearMonth = session.month;
+    context.today = api.todayIso();
+    context.evaluateCoverage = entries => evaluateResolvedDayCoverage(entries);
+    return context;
+  }
+  function evaluateVariant(plan, optimizationBasePlan) {
+    const context = optimizerContext(plan), mutations = workflow.planMutations(optimizationBasePlan, plan);
+    const validation = simulatePlanning2MutationPackage({ ...context, sourcePlan: optimizationBasePlan }, { packageType: "PLAYGROUND_MANUAL", mutations });
+    const comparisonMutations = workflow.planMutations(session.basePlan, plan);
+    const facts = window.Planning2PlaygroundOptimizer.evaluateVariantFacts(plan, comparisonMutations, context, validation);
+    return { variantFacts: facts, explanationFacts: facts, externalHelpHints: facts.externalHelpHints, hardConstraintResult: validation.constraintResults };
+  }
+
   function resolvedEntry(employee, isoDate) {
     if (typeof getResolvedDayEntry !== "function") return session.workingPlan.schedule?.[isoDate]?.[employee.id] || null;
     const resolved = getResolvedDayEntry({ employee, isoDate, schedule: session.workingPlan.schedule, absences: session.workingPlan.absences, stateKey: session.workingPlan.stateKey || "schleswig-holstein" });
@@ -78,10 +101,11 @@
     const selected = new Set(session.selectedWeeks);
     const today = api.todayIso();
     const days = monthWeeks.flatMap(week => week.days).filter((day, index, all) => day.startsWith(session.month) && all.indexOf(day) === index);
-    const employees = (readJson(MASTER_KEY, { employees: [] }).employees || []).filter(employee => (
-      (!employee.activeFromMonth || session.month >= employee.activeFromMonth)
-      && (!employee.activeToMonth || session.month <= employee.activeToMonth)
-    ));
+    const employees = employeesForMonth();
+    const currentVariant = workflow.selectedVariant(session);
+    const tabs = (session.variants || []).slice(0, 3).map((variant, index) => `<button type="button" role="tab" data-variant="${escapeHtml(variant.variantId)}" aria-selected="${variant.variantId === session.selectedVariantId}">${index === 0 ? "⭐ Empfohlen" : `Variante ${index + 1}`}</button>`).join("");
+    const comparison = (session.variants || []).slice(0, 3).map((variant, index) => { const facts = variant.variantFacts || variant.explanationFacts || {}; const warnings = variant.hardConstraintResult?.violations || []; return `<article><b>${index === 0 ? "⭐ Empfohlen" : `Variante ${index + 1}`}</b><span>Unterbesetzung: ${minutesLabel(facts.understaffingMinutes)}</span><span>${facts.employeesInMinus || 0} Mitarbeiter im Minus · ${facts.employeesInPlus || 0} im Plus</span><span>GFB-Restbudget: ${minutesLabel(facts.gfbRemainingMinutes)}</span><span>${facts.changeCount ?? variant.totalChangeCount ?? 0} Änderungen · ${facts.outsideSelectedWeekChangeCount || 0} außerhalb der Auswahl</span><span>Warnungen: ${warnings.length}</span><span>Externe Hilfe: ${(variant.externalHelpHints || []).length ? "Hinweis vorhanden" : "nicht nötig"}</span><details><summary>Details pro Mitarbeiter</summary>${(facts.employeeBalances || []).map(item => `<div>${escapeHtml(item.employeeId)}: ${item.projectedBalanceMinutes < 0 ? "−" : "+"}${minutesLabel(item.projectedBalanceMinutes)}</div>`).join("") || "Keine Details"}</details></article>`; }).join("");
+    const invalid = currentVariant?.hardConstraintResult?.allowed === false ? `<div class="pgInvalid"><b>⚠ Diese Variante ist aktuell nicht gültig</b>${(currentVariant.hardConstraintResult.violations || []).map(item => `<div>${escapeHtml(item.message || item.rule)}</div>`).join("")}</div>` : "";
 
     const weekControls = monthWeeks.map((week, index) => `<div class="pgWeekControl"><label><input data-week="${week.id}" type="checkbox" ${selected.has(week.id) ? "checked" : ""}>W${index + 1} · ${week.days[0].slice(8)}.–${week.days[5].slice(8)}.</label>${lockButton({ scope: "week", label: `W${index + 1}`, weekId: week.id })}</div>`).join("");
 
@@ -102,7 +126,7 @@
       return `<div class="pgRow"><div class="pgPerson"><b>${escapeHtml(employee.name || employee.id)}</b>${lockButton({ scope: "employee-period", label: "Zeitraum", employeeId: employee.id })}<div class="pgEmployeeWeeks" aria-label="${escapeHtml(employee.name || employee.id)} pro Woche fixieren">${employeeWeekLocks}</div></div>${cells}</div>`;
     }).join("");
 
-    overlay.innerHTML = `<section class="pgPanel" role="dialog" aria-modal="true" aria-labelledby="pgTitle"><header><div><small>STAGE E · SPIELPLATZ</small><h2 id="pgTitle">${new Date(`${session.month}-01T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</h2></div><button type="button" data-close>Schließen</button></header><div class="pgOverview"><span><b>Monat</b>${session.month}</span><span><b>Ausgewählte Wochen</b>${session.selectedWeeks.length}</span><span><b>Vergangenheit/heute</b>🔒 gesperrt</span><span><b>Fixierungen</b>${session.locks.length}</span><span><b>Ausgangspunkt</b>aktueller Plan</span></div><div class="pgWeeks">${weekControls}</div><p class="pgHint">Ausgewählte Wochen sind primär, keine fachliche Sperre. Zelle antippen = bearbeiten; der separate 🔒-Knopf fixiert eine bestehende Schicht ohne Änderung.</p><div class="pgGrid"><div class="pgRow pgHead"><div>Mitarbeiter</div>${days.map(day => lockButton({ scope: "day", label: `${day.slice(8)}. Tag`, isoDate: day, disabled: day <= today }))}</div>${rows}</div><div class="pgLocks"><b>Fixierungen:</b>${session.locks.map(lock => `<button type="button" data-unlock="${lock.id}">🔒 ${escapeHtml(lock.scope)} ${escapeHtml(lock.employeeId || lock.isoDate || lock.weekId)}${lock.outsideSelectedWeek ? " · außerhalb ausgewählter Woche" : ""} ×</button>`).join("") || " keine"}</div><footer><button type="button" class="danger" data-discard>Spielplatz verwerfen</button><button type="button" disabled>Optimierung starten (folgt)</button></footer></section>`;
+    overlay.innerHTML = `<section class="pgPanel" role="dialog" aria-modal="true" aria-labelledby="pgTitle"><header><div><small>STAGE E4 · SPIELPLATZ</small><h2 id="pgTitle">${new Date(`${session.month}-01T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</h2></div><button type="button" data-close>Schließen</button></header><div class="pgOverview"><span><b>Optimieren</b>${session.month}</span><span><b>Ausgewählte Wochen</b>${session.selectedWeeks.length}</span><span><b>Vergangenheit/heute</b>🔒 gesperrt</span><span><b>Fixierungen</b>${session.locks.length}</span><span><b>Ausgangspunkt</b>${session.source.startsWith("variant:") ? "bearbeitete Variante" : "aktueller Plan"}</span></div><div class="pgWeeks">${weekControls}</div>${session.optimization.status === "running" ? '<p class="pgLoading" role="status">Varianten werden berechnet … Bestehender Spielplatz bleibt erhalten.</p>' : session.optimization.status === "error" ? `<p class="pgInvalid">Optimierung fehlgeschlagen: ${escapeHtml(session.optimization.error)}</p>` : ""}<div class="pgVariantTabs" role="tablist">${tabs}</div>${session.variants.length ? `<details class="pgCompare"><summary>Varianten vergleichen</summary><div>${comparison}</div></details>` : ""}${invalid}<p class="pgHint">Ausgewählte Wochen sind primär, keine fachliche Sperre. Zelle antippen = bearbeiten; der separate 🔒-Knopf fixiert eine bestehende Schicht ohne Änderung.</p><div class="pgGrid"><div class="pgRow pgHead"><div>Mitarbeiter</div>${days.map(day => lockButton({ scope: "day", label: `${day.slice(8)}. Tag`, isoDate: day, disabled: day <= today }))}</div>${rows}</div><div class="pgLocks"><b>Fixierungen:</b>${session.locks.map(lock => `<button type="button" data-unlock="${lock.id}" aria-label="Fixierung lösen">🔒 fixiert · ${escapeHtml(lock.scope)} ${escapeHtml(lock.employeeId || lock.isoDate || lock.weekId)}${lock.outsideSelectedWeek ? " · außerhalb ausgewählter Woche" : ""} · Fixierung lösen</button>`).join("") || " keine"}</div><footer><button type="button" class="danger" data-discard>Spielplatz verwerfen</button><button type="button" data-optimize ${session.optimization.status === "running" ? "disabled" : ""}>Optimierung starten</button>${currentVariant ? `<button type="button" data-optimize-from-here ${currentVariant.hardConstraintResult?.allowed === false || session.optimization.status === "running" ? "disabled" : ""}>Von hier weiter optimieren</button>` : ""}</footer></section>`;
   }
 
   function toggleLock(button) {
@@ -133,6 +157,12 @@
       if (!target) return;
       if (target.hasAttribute("data-close")) return overlay.classList.add("hidden");
       if (target.hasAttribute("data-discard")) { repository.discard(); session = null; return overlay.classList.add("hidden"); }
+      if (target.dataset.variant) { workflow.selectVariant(session, target.dataset.variant); repository.save(session); return render(); }
+      if (target.hasAttribute("data-optimize") || target.hasAttribute("data-optimize-from-here")) {
+        const fromHere = target.hasAttribute("data-optimize-from-here");
+        workflow.optimize(session, (input, context, config) => window.Planning2PlaygroundOptimizer.run(input, context, config), optimizerContext(session.workingPlan), { fromHere, onState() { repository.save(session); render(); } });
+        return;
+      }
       if (target.dataset.unlock) api.removeLock(session, target.dataset.unlock);
       else if (target.dataset.week) api.setSelectedWeeks(session, [...overlay.querySelectorAll("[data-week]:checked")].map(input => input.dataset.week));
       else if (target.dataset.toggleLock) toggleLock(target);
@@ -149,7 +179,8 @@
           existing: editorPlan.schedule?.[isoDate]?.[employeeId] || null,
           plan: editorPlan,
           onCommit(nextPlan) {
-            api.commitWorkingPlan(session, employeeId, isoDate, nextPlan);
+            const result = api.commitWorkingPlan(session, employeeId, isoDate, nextPlan);
+            if (result.changed) workflow.reevaluateSelected(session, evaluateVariant);
             repository.save(session);
             render();
           }
