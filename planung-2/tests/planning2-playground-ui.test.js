@@ -56,3 +56,21 @@ test('comparison renders persisted E3 facts rather than calculating a UI score',
   for (const fact of ['variantFacts', 'explanationFacts', 'externalHelpHints', 'understaffingMinutes', 'employeesInMinus', 'gfbRemainingMinutes', 'outsideSelectedWeekChangeCount']) assert.match(ui, new RegExp(fact));
   assert.doesNotMatch(ui, /compareDomainFacts|rankingVector|score\s*[=:(]/i);
 });
+
+test('mobile playground keeps important content legible and touch states explicit', () => {
+  assert.match(ui, /class="pgPersonName"/);
+  assert.match(ui, /class="pgCellValue"/);
+  assert.match(ui, /aria-pressed="\$\{lock \? "true" : "false"\}"/);
+  assert.match(preview, /\.pgPersonName\{[^}]*text-overflow:ellipsis[^}]*font-weight:800/);
+  assert.match(preview, /\.pgCellValue\{[^}]*color:#17202a[^}]*font-weight:800/);
+  assert.match(preview, /\.pgLockAction\.isActive\{[^}]*background:#d7e8fa!important[^}]*border-color:#4778a8!important/);
+  assert.match(preview, /\.pgVariantTabs button\{[^}]*min-height:44px/);
+  assert.match(preview, /\.pgMiniLock\{min-height:38px!important/);
+});
+
+test('compact help and comparison preserve all Stage E information without optimizer side effects', () => {
+  assert.match(ui, /<details class="pgHint">/);
+  assert.match(ui, /Ausgewählte Wochen sind bevorzugt/);
+  for (const label of ['Varianten vergleichen', 'Unterbesetzung', 'Plus / Minus', 'GFB-Restbudget', 'Änderungen', 'Warnungen', 'Externe Hilfe']) assert.match(ui, new RegExp(label));
+  assert.equal([...ui.matchAll(/workflow\.optimize\(session/g)].length, 1);
+});
