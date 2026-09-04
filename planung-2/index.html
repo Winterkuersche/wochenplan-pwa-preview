@@ -74,6 +74,20 @@
   window.planning2ShowRuntimeError=show;
 })();
 </script>
+<script>
+window.addEventListener('error', function (event) {
+  const id = 'previewRuntimeError';
+  let box = document.getElementById(id);
+  if (!box) {
+    box = document.createElement('div');
+    box.id = id;
+    box.style.cssText = 'margin:10px;padding:10px;border:1px solid #b42318;border-radius:10px;background:#3a1717;color:#fff;font:12px/1.4 monospace;white-space:pre-wrap';
+    const app = document.querySelector('.app');
+    if (app) app.prepend(box);
+  }
+  box.textContent = 'JS-Fehler: ' + (event.message || 'unbekannt') + '\n' + (event.filename || '') + ':' + (event.lineno || '') + ':' + (event.colno || '');
+});
+</script>
 <script src="./holidays.js"></script>
 <script src="./time-utils.js"></script>
 <script src="./employee-availability.js"></script>
