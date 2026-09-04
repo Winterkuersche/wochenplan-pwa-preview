@@ -62,10 +62,21 @@ test('mobile playground keeps important content legible and touch states explici
   assert.match(ui, /class="pgCellValue"/);
   assert.match(ui, /aria-pressed="\$\{lock \? "true" : "false"\}"/);
   assert.match(preview, /\.pgPersonName\{[^}]*text-overflow:ellipsis[^}]*font-weight:800/);
-  assert.match(preview, /\.pgCellValue\{[^}]*color:#17202a[^}]*font-weight:800/);
+  assert.match(preview, /\.pgCellValue\{[^}]*color:#111827[^}]*font-weight:700/);
   assert.match(preview, /\.pgLockAction\.isActive\{[^}]*background:#d7e8fa!important[^}]*border-color:#4778a8!important/);
   assert.match(preview, /\.pgVariantTabs button\{[^}]*min-height:44px/);
   assert.match(preview, /\.pgMiniLock\{min-height:38px!important/);
+});
+
+test('light plan cells keep readable text hierarchy in dark mode and dim past cells by background', () => {
+  assert.match(preview, /\.pgEditCell\{[^}]*background:#fff!important[^}]*color:#1f2933!important/);
+  assert.match(preview, /\.pgCellDate\{color:#52606d[^}]*font-weight:650/);
+  assert.match(preview, /\.pgCellState\{color:#44515e[^}]*font-weight:650/);
+  assert.match(preview, /\.pgCell\.isPast \.pgEditCell\{background:#e9edf1!important\}/);
+  const darkMode = preview.slice(preview.lastIndexOf('@media(prefers-color-scheme:dark)'));
+  assert.match(darkMode, /\.pgEditCell\{background:#fff!important;color:#1f2933!important\}/);
+  assert.match(darkMode, /\.pgCellValue\{color:#111827!important\}/);
+  assert.doesNotMatch(darkMode, /\.pgEditCell,\.pgCellValue\{color:#edf1f5!important\}/);
 });
 
 test('compact help and comparison preserve all Stage E information without optimizer side effects', () => {
