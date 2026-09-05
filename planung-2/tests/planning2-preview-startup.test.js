@@ -21,12 +21,6 @@ const expectedDependencies = [
   'planning2-carryover.js',
   'planning2-mutation-packages.js',
   'planning2-targeted-suggestions.js',
-  'planning2-playground-state.js',
-  'planning2-playground-optimizer.js',
-  'planning2-playground-workflow.js',
-  'planning2-optimization-history.js',
-  'planning2-playground-acceptance.js',
-  'planning2-playground-ui.js'
 ];
 
 function extractFunction(source, name) {
@@ -285,4 +279,10 @@ test('Planning2OptimizationDebug.start explicitly executes the complete candidat
   assert.equal(calls.mutationPackages, 1, 'Stage D package generation should run explicitly');
   assert.equal(calls.problemGroups, 1, 'candidate problem grouping should run explicitly');
   assert.equal(vm.runInContext('window.Planning2OptimizationDebug.isActive()', result.context), true);
+});
+
+test('preview contains no active Stage E playground UI or initialization', () => {
+  assert.doesNotMatch(preview, /planning2-playground|planning2-optimization-history|Planning2Playground|Stage E|Spielplatz/);
+  assert.doesNotMatch(preview, /class="[^"]*pg(?:Overlay|Panel|Variant|Compare|History|Acceptance)/);
+  assert.ok(!expectedDependencies.some(filename => /playground|optimization-history/.test(filename)));
 });
