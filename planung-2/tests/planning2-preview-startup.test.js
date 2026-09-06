@@ -21,6 +21,7 @@ const expectedDependencies = [
   'planning2-carryover.js',
   'planning2-mutation-packages.js',
   'planning2-targeted-suggestions.js',
+  'planning2-data-adapter.js',
 ];
 
 function extractFunction(source, name) {
@@ -116,7 +117,7 @@ buildPlanning2ProblemCandidateGroups=function(...args){window.__planning2Optimiz
   return { context, dependencies, elements, listeners, storage };
 }
 
-test('preview starts without localStorage data and shows a clear empty state', () => {
+test('Planning 2 starts without productive data and shows a clear empty state', () => {
   const result = startPreview();
 
   assert.deepEqual(result.dependencies, expectedDependencies);
@@ -124,7 +125,7 @@ test('preview starts without localStorage data and shows a clear empty state', (
   assert.match(result.elements.weeks.innerHTML, /data-w="0"/);
   assert.match(result.elements.grid.innerHTML, /Keine Stammdaten gefunden/);
   assert.equal(result.elements.planung2RuntimeStatus.hidden, true);
-  assert.ok(result.storage.has('wochenplan_plan_v10_planning2_preview'));
+  assert.equal(result.storage.has('wochenplan_plan_v10'), false);
 });
 
 test('preview renders weeks and employees from normal master and plan data', () => {
@@ -140,8 +141,8 @@ test('preview renders weeks and employees from normal master and plan data', () 
     absences: []
   };
   const result = startPreview({
-    wochenplan_master_v10_planning2_preview: JSON.stringify(master),
-    wochenplan_plan_v10_planning2_preview: JSON.stringify(plan)
+    wochenplan_master_v10: JSON.stringify(master),
+    wochenplan_plan_v10: JSON.stringify(plan)
   });
 
   assert.match(result.elements.weeks.innerHTML, /data-w="4"/);
@@ -151,14 +152,14 @@ test('preview renders weeks and employees from normal master and plan data', () 
   assert.doesNotMatch(result.elements.grid.innerHTML, /Keine Stammdaten/);
 });
 
-test('preview imports a transfer without reading or overwriting live storage', () => {
+test('retained preview import never migrates legacy test data into the productive plan', () => {
   const liveMaster = JSON.stringify({ employees: [{ id: 'live', name: 'Live bleibt getrennt' }] });
   const livePlan = JSON.stringify({ schedule: { live: true }, absences: [] });
   const result = startPreview({
     wochenplan_master_v10: liveMaster,
     wochenplan_plan_v10: livePlan
   });
-  assert.match(result.elements.grid.innerHTML, /Keine Stammdaten gefunden/);
+  assert.match(result.elements.grid.innerHTML, /Live bleibt getrennt/);
 
   const transfer = {
     format: 'wochenplan-planning2-transfer',
@@ -169,13 +170,10 @@ test('preview imports a transfer without reading or overwriting live storage', (
   result.context.transfer = transfer;
   vm.runInContext('importPlanning2Data(transfer)', result.context);
 
-  assert.match(result.elements.grid.innerHTML, /Nur Preview/);
+  assert.match(result.elements.grid.innerHTML, /Live bleibt getrennt/);
   assert.equal(result.storage.get('wochenplan_master_v10'), liveMaster);
   assert.equal(result.storage.get('wochenplan_plan_v10'), livePlan);
-  assert.deepEqual(
-    JSON.parse(result.storage.get('wochenplan_master_v10_planning2_preview')),
-    transfer.master
-  );
+  assert.deepEqual(JSON.parse(result.storage.get('wochenplan_master_v10_planning2_preview')), transfer.master);
   assert.deepEqual(
     JSON.parse(result.storage.get('wochenplan_plan_v10_planning2_preview')),
     transfer.plan
@@ -236,8 +234,8 @@ function planning2RuntimeFixture(employeeCount = 6) {
     }]));
   }
   return {
-    wochenplan_master_v10_planning2_preview: JSON.stringify({ employees }),
-    wochenplan_plan_v10_planning2_preview: JSON.stringify({
+    wochenplan_master_v10: JSON.stringify({ employees }),
+    wochenplan_plan_v10: JSON.stringify({
       weekFrom: '2026-08-24',
       weekTo: '2026-08-29',
       schedule,

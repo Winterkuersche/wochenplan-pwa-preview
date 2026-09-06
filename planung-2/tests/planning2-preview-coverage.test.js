@@ -146,6 +146,11 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
     toast: () => {},
     closeEditor: () => {}
   });
+  context.planning2Data = {
+    readPlan: () => JSON.parse(stored.get('wochenplan_plan_v10') || '{}'),
+    readMaster: () => JSON.parse(stored.get('wochenplan_master_v10') || '{"employees":[]}'),
+    savePlan: value => stored.set('wochenplan_plan_v10', JSON.stringify(value))
+  };
 
   vm.runInContext([
     extractFunction('load'),
@@ -185,8 +190,8 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   context.renderedCoverage = renderedCoverage;
   context.renderedLateCells = renderedLateCells;
 
-  stored.set('planning-2-master', JSON.stringify({ employees }));
-  stored.set('planning-2-test-plan', JSON.stringify({
+  stored.set('wochenplan_master_v10', JSON.stringify({ employees }));
+  stored.set('wochenplan_plan_v10', JSON.stringify({
     schedule: {
       [dayIso]: {
         opener: { type: 'shift', start: '08:55', end: '19:10' },
@@ -213,8 +218,8 @@ test('persisted planning 2 edit is the entry used by coverage on the next render
   assert.equal(vm.runInContext("document.getElementById('editStart').value", context), '14:00');
   vm.runInContext("saveCustom()", context);
 
-  assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.start, '14:00');
-  assert.equal(JSON.parse(stored.get('planning-2-test-plan')).schedule[dayIso].late.end, '19:10');
+  assert.equal(JSON.parse(stored.get('wochenplan_plan_v10')).schedule[dayIso].late.start, '14:00');
+  assert.equal(JSON.parse(stored.get('wochenplan_plan_v10')).schedule[dayIso].late.end, '19:10');
   assert.deepEqual(Array.from(renderedLateCells[1]), ['14:00–19:10', 'L', 'shift']);
   assert.deepEqual(Array.from(renderedCoverage[1]), [true, '✓ Besetzung']);
 });

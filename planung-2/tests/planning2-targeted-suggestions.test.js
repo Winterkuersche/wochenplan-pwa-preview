@@ -123,6 +123,6 @@ test('apply path revalidates fresh state, stores one undo snapshot, and uses ato
   assert.match(apply, /preparePlanning2MutationPackageApply/);
   assert.match(apply, /buildFreshContext/);
   assert.match(apply, /planning2OptimizationUndo=clone\(plan\)/);
-  assert.match(apply, /save\(TEST_PLAN,prepared\.plan\)/);
+  assert.match(apply, /planning2Data\.savePlan\(prepared\.plan\)/);
   assert.match(apply, /nicht mehr aktuell/);
 });

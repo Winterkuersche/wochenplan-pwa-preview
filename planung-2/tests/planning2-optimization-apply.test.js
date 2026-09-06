@@ -12,6 +12,7 @@ function harness(plan,suggestion,{fresh=[suggestion],resolved=true,employees=[{i
     TEST_PLAN:'test',PREVIEW_MASTER:'master',active:()=>true,clone:structuredClone,
     getTestPlan:()=>structuredClone(stored),load:()=>({employees}),
     save:(_key,value)=>{stored=structuredClone(value)},render:()=>{renders++},
+    planning2Data:{readMaster:()=>({employees}),savePlan:value=>{stored=structuredClone(value)}},
     toast:(...args)=>toasts.push(args),getCurrentPlanning2OptimizationSuggestions:value=>structuredClone(typeof fresh==='function'?fresh(value):fresh),
     planning2ResolvedWorkShift:(value,employee,isoDate)=>resolved?value.schedule?.[isoDate]?.[employee.id]:null,
     applyPlanning2OptimizationAutofixes:(_plan,_employees,isoDate)=>{autofixes.push(isoDate);return{changedIds:[],warning:''}},
