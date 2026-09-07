@@ -36,3 +36,17 @@ test('iPhone layout stacks availability controls and keeps touch-sized inputs', 
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.availabilityOverrideRow/);
   assert.match(styles, /min-height: 44px/);
 });
+
+
+test('compact employee details use existing master fields and UI-only single-row expansion', () => {
+  const render = extract('renderTeamSetup');
+  assert.match(render, /teamRowPrimary/);
+  assert.match(render, /teamRowDetails/);
+  assert.match(render, /expandedTeamEmployeeId/);
+  assert.match(render, /detailPanel\.hidden = !opening/);
+  const toggle = render.match(/toggleDetailsButton\.addEventListener\("click",[^]*?\n    \}\);/)?.[0] || '';
+  assert.doesNotMatch(toggle, /saveAppState|saveMasterData|localStorage/);
+  for (const existingField of ['timePreference', 'flexibleWeekDistribution', 'planning2FullDayCandidate', 'availability']) {
+    assert.match(render, new RegExp(existingField));
+  }
+});

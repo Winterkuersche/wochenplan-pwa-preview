@@ -1098,7 +1098,7 @@ const topToolbarEl = document.getElementById("topToolbar");
 const btnResetWeekEl = document.getElementById("btnResetWeek");
 const btnExportBackupEl = document.getElementById("btnExportBackup");
 const btnImportBackupEl = document.getElementById("btnImportBackup");
-const btnExportPlanning2El = document.getElementById("btnExportPlanning2");
+// Legacy transfer helpers remain available for standalone/preview compatibility; the integrated UI no longer exposes them.
 const backupFileInputEl = document.getElementById("backupFileInput");
 let isReconcilingMepEarlyStartForActiveMonth = false;
 const backupInfoEl = document.getElementById("backupInfo");
@@ -2783,11 +2783,12 @@ function renderTopbarVisibility() {
   const isMep = (uiState?.currentView || "week") === "mep";
 
   if (viewMetaLineEl) {
-    viewMetaLineEl.classList.toggle("hidden", !isWeek);
+    // Planning 2 owns its month/week navigation and summary when it is the week view.
+    viewMetaLineEl.classList.add("hidden");
   }
 
   if (btnResetWeekEl) {
-    btnResetWeekEl.classList.toggle("hidden", !isWeek);
+    btnResetWeekEl.classList.add("hidden");
   }
 
   if (btnMepModeNormalEl) {
@@ -2857,6 +2858,8 @@ function renderView() {
   requestActiveResponsiveViewRefresh();
 }
 
+let expandedTeamEmployeeId = null;
+
 function renderTeamSetup() {
   if (!teamListEl) return;
 
@@ -2865,6 +2868,21 @@ function renderTeamSetup() {
   state.employees.forEach((emp, idx) => {
     const row = document.createElement("div");
     row.className = "teamRow";
+
+    const primary = document.createElement("div");
+    primary.className = "teamRowPrimary";
+    const detailPanel = document.createElement("div");
+    detailPanel.className = "teamRowDetails";
+    detailPanel.hidden = expandedTeamEmployeeId !== emp.id;
+    const labeledField = (label, control, className = "teamField") => {
+      const field = document.createElement("label");
+      field.className = className;
+      const caption = document.createElement("span");
+      caption.className = "teamFieldLabel";
+      caption.textContent = label;
+      field.append(caption, control);
+      return field;
+    };
 
     const nameInput = document.createElement("input");
     nameInput.type = "text";
@@ -2971,9 +2989,9 @@ serviceBonusInput.addEventListener("change", () => {
     planning2FullDayLabel.textContent = "Planung 2 Ganztag";
     planning2FullDayField.append(planning2FullDayLabel, planning2FullDayInput);
 
-    const availabilityDetails = document.createElement("details");
+    const availabilityDetails = document.createElement("section");
     availabilityDetails.className = "employeeAvailability";
-    const availabilitySummary = document.createElement("summary");
+    const availabilitySummary = document.createElement("h3");
     availabilitySummary.textContent = "Verfügbarkeit & Präferenz";
     availabilityDetails.appendChild(availabilitySummary);
 
@@ -3145,21 +3163,37 @@ serviceBonusInput.addEventListener("change", () => {
       openManualMonthDialog(emp);
     });
 
-    row.appendChild(nameInput);
-    row.appendChild(roleSel);
-    row.appendChild(targetInput);
-    row.appendChild(activeFromField);
-    row.appendChild(activeToField);
-    row.appendChild(vacationInput);
-    row.appendChild(usedVacationInfo);
-    row.appendChild(remainingVacationInfo);
-    row.appendChild(birthDateInput);
-    row.appendChild(serviceBonusInput);
-    row.appendChild(planning2FullDayField);
-    row.appendChild(availabilityDetails);
-    row.appendChild(manualMonthButton);
-    row.appendChild(removeEmployeeButton);
+    const toggleDetailsButton = document.createElement("button");
+    toggleDetailsButton.type = "button";
+    toggleDetailsButton.className = "teamDetailsToggle";
+    toggleDetailsButton.setAttribute("aria-expanded", String(!detailPanel.hidden));
+    toggleDetailsButton.setAttribute("aria-label", `Details für ${emp.name || `Mitarbeiter ${idx + 1}`} ${detailPanel.hidden ? "öffnen" : "schließen"}`);
+    toggleDetailsButton.textContent = detailPanel.hidden ? "⌄" : "⌃";
+    toggleDetailsButton.addEventListener("click", () => {
+      const opening = detailPanel.hidden;
+      teamListEl.querySelectorAll(".teamRowDetails").forEach((panel) => { panel.hidden = true; });
+      teamListEl.querySelectorAll(".teamDetailsToggle").forEach((button) => {
+        button.setAttribute("aria-expanded", "false");
+        button.textContent = "⌄";
+      });
+      expandedTeamEmployeeId = opening ? emp.id : null;
+      detailPanel.hidden = !opening;
+      toggleDetailsButton.setAttribute("aria-expanded", String(opening));
+      toggleDetailsButton.textContent = opening ? "⌃" : "⌄";
+    });
 
+    primary.append(
+      labeledField("Name", nameInput), labeledField("Rolle", roleSel),
+      labeledField("Wochen-Soll", targetInput), activeFromField, activeToField,
+      toggleDetailsButton
+    );
+    detailPanel.append(
+      labeledField("Urlaubstage", vacationInput), labeledField("Genommen", usedVacationInfo),
+      labeledField("Resturlaub", remainingVacationInfo), labeledField("Geburtsdatum", birthDateInput),
+      labeledField("Dienstjubiläum", serviceBonusInput, "teamField teamCheckboxField"),
+      planning2FullDayField, availabilityDetails, manualMonthButton, removeEmployeeButton
+    );
+    row.append(primary, detailPanel);
     teamListEl.appendChild(row);
     });
 }
@@ -3967,7 +4001,7 @@ btnExportBackupEl?.addEventListener("click", () => {
   exportBackup();
 });
 
-btnExportPlanning2El?.addEventListener("click", async () => {
+document.getElementById("btnExportPlanning2")?.addEventListener("click", async () => {
   await exportPlanning2Transfer();
 });
 

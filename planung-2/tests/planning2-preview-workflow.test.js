@@ -5,12 +5,14 @@ const assert = require('node:assert/strict');
 const workflow = fs.readFileSync('.github/workflows/planung-2-preview.yml', 'utf8');
 
 test('Planning 2 workflow tests before publishing to the existing preview repository', () => {
-  const tests = workflow.indexOf('node --test tests/planning2-preview-startup.test.js');
+  const testCommand = workflow.match(/node --test [^\n]+/)?.[0] || '';
+  const tests = workflow.indexOf(testCommand);
   const checkout = workflow.indexOf('repository: Winterkuersche/wochenplan-pwa-preview');
   const publish = workflow.indexOf('source/ "$preview_directory/"');
 
   assert.match(workflow, /branches:\s*\n\s*- planung-2-interaktiv/);
-  assert.ok(tests >= 0, 'Planning 2 tests must remain in the workflow');
+  assert.match(testCommand, /tests\/planning2-live-integration\.test\.js/, 'integrated app tests must run before deployment');
+  assert.match(testCommand, /tests\/planning2-preview-startup\.test\.js/, 'standalone preview tests must run before deployment');
   assert.ok(checkout > tests, 'preview checkout must happen after the tests');
   assert.ok(publish > checkout, 'publishing must happen after preview checkout');
 });

@@ -18,7 +18,8 @@ test('mobile menu markup keeps primary overflow actions in Mehr menu', () => {
   assert.match(html, /data-forward-target="btnResetWeek"/);
   assert.match(html, /data-forward-target="btnExportBackup"/);
   assert.match(html, /data-forward-target="btnImportBackup"/);
-  assert.match(html, /data-forward-target="btnExportPlanning2"/);
+  assert.doesNotMatch(html, /An Planung 2 übergeben/);
+  assert.doesNotMatch(html, /data-forward-target="btnExportPlanning2"/);
   assert.match(html, /data-forward-target="btnDarkMode"/);
   assert.match(html, /data-forward-target="btnPrint"/);
 });
