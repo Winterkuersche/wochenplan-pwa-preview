@@ -1080,6 +1080,7 @@ const weeklyHoursStatusEl = document.getElementById("weeklyHoursStatus");
 
 const dayViewEl = document.getElementById("dayView");
 const weekViewEl = document.getElementById("weekView");
+const legacyWeekViewEl = document.getElementById("legacyWeekView");
 const monthViewEl = document.getElementById("monthView");
 const overviewViewEl = document.getElementById("overviewView");
 const mepTemplateViewEl = document.getElementById("mepTemplateView");
@@ -2839,6 +2840,8 @@ function renderView() {
 
   dayViewEl.classList.toggle("hidden", view !== "day");
   weekViewEl.classList.toggle("hidden", view !== "week");
+  legacyWeekViewEl?.classList.add("hidden");
+  if (view === "week") window.Planning2Live?.mount();
   monthViewEl.classList.toggle("hidden", view !== "month");
   overviewViewEl.classList.toggle("hidden", view !== "overview");
   mepTemplateViewEl.classList.toggle("hidden", view !== "mep");
@@ -3708,6 +3711,15 @@ function bootstrapApp() {
     }
   }
 }
+
+window.addEventListener("planning2:plan-saved", () => {
+  const refreshed = loadAppState();
+  state = refreshed.state;
+  syncVacationScheduleFromAbsences();
+  refreshEmployeeVacationCounters();
+  syncMonthPlanToState();
+  syncWeekRangeFromActiveWeek();
+});
 
 /* ========= EVENTS ========= */
 console.info("startup: begin");
