@@ -131,7 +131,40 @@
     return { request, getRunCount: () => runCount };
   }
 
+  function installTargetedUiFeedback() {
+    if (typeof document === "undefined" || typeof globalScope.addEventListener !== "function") return;
+    let pending = false;
+    const feedbackEls = () => ({
+      overlay: document.getElementById("targetedSuggestionsOverlay"),
+      list: document.getElementById("targetedSuggestionsList")
+    });
+    document.addEventListener("click", event => {
+      const button = event.target?.closest?.("[data-targeted-day]");
+      if (!button) return;
+      const { overlay, list } = feedbackEls();
+      if (!overlay || !list) return;
+      pending = true;
+      list.innerHTML = '<div class="empty" data-targeted-loading>Vorschläge werden berechnet …</div>';
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+    }, true);
+    globalScope.addEventListener("error", event => {
+      if (!pending) return;
+      const { overlay, list } = feedbackEls();
+      if (!overlay || !list) return;
+      const message = event?.error?.message || event?.message || "Unbekannter Fehler";
+      list.innerHTML = '<div class="empty targetedError"><b>Vorschläge konnten nicht berechnet werden.</b><br>' + String(message).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char])) + '</div>';
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+      pending = false;
+    });
+    document.addEventListener("click", event => {
+      if (event.target?.closest?.("[data-targeted-apply], #closeTargetedSuggestions")) pending = false;
+    });
+  }
+
   const api = { createPlanning2TargetedSuggestionService, structuredReasons, problemIdFor, centralRankingFacts, remainingExternalHelp };
   globalScope.Planning2TargetedSuggestions = api;
+  installTargetedUiFeedback();
   if (typeof module !== "undefined") module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : window);
