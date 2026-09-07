@@ -1,0 +1,459 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { loadScripts } = require('./test-helpers');
+
+const preview = fs.readFileSync('planung2-preview.html', 'utf8');
+
+function extractFunction(name) {
+  const start = preview.indexOf(`function ${name}`);
+  assert.notEqual(start, -1, `${name} should exist`);
+  let depth = 0;
+  let opened = false;
+  for (let index = start; index < preview.length; index += 1) {
+    if (preview[index] === '{') {
+      depth += 1;
+      opened = true;
+    } else if (preview[index] === '}') {
+      depth -= 1;
+      if (opened && depth === 0) return preview.slice(start, index + 1);
+    }
+  }
+  throw new Error(`Could not extract ${name}`);
+}
+
+function loadCoverage(resolvedByEmployee) {
+  const calls = [];
+  const context = vm.createContext({
+    iso: (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    mins: (value) => {
+      const [hours, minutes] = value.split(':').map(Number);
+      return hours * 60 + minutes;
+    },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`,
+    getResolvedDayEntry: (params) => {
+      calls.push(params);
+      return resolvedByEmployee[params.employee.id];
+    }
+  });
+  vm.runInContext(
+    `${extractFunction('resolvePlanDay')};${extractFunction('resolvedShiftTimes')};${extractFunction('evaluateResolvedDayCoverage')};${extractFunction('coverage')};this.coverage=coverage;this.evaluate=evaluateResolvedDayCoverage`,
+    context
+  );
+  return { coverage: context.coverage, evaluate: context.evaluate, calls };
+}
+
+function shift(start, end) {
+  return { type: 'shift', sourceEntry: { type: 'shift', start, end } };
+}
+
+test('a completely closed holiday has no coverage gaps', () => {
+  const { evaluate } = loadCoverage({});
+  const resolution = loadScripts([
+    'holidays.js', 'time-utils.js', 'shift-rules.js', 'date-utils.js',
+    'shift-utils.js', 'status-utils.js', 'absences.js', 'day-resolution.js'
+  ]);
+  const resolved = ['anna', 'ben'].map((id) => resolution.getResolvedDayEntry({
+    employee: { id, target: '8:00' },
+    isoDate: '2026-10-03',
+    schedule: {},
+    absences: [],
+    stateKey: 'schleswig-holstein'
+  }));
+  const result = evaluate(resolved);
+
+  assert.ok(resolved.every((entry) => entry.isHoliday && entry.minutesForBranch === 0));
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.gaps), []);
+  assert.equal(result.kind, 'closed');
+});
+
+test('a normal workday without employees remains understaffed', () => {
+  const { evaluate } = loadCoverage({});
+  const result = evaluate([
+    { type: 'off', isHoliday: false },
+    { type: 'off', isHoliday: false }
+  ]);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.gaps.length > 0);
+});
+
+test('coverage uses every employee resolved shift and refreshes after a changed shift', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    early: shift('09:00', '18:00'),
+    late: shift('15:00', '18:00')
+  };
+  const { coverage, calls } = loadCoverage(resolved);
+  const employees = [{ id: 'opener' }, { id: 'early' }, { id: 'late' }];
+  const plan = { schedule: {}, absences: [] };
+  const day = new Date(2026, 7, 27);
+
+  assert.deepEqual(Array.from(coverage(employees, plan, day)), [false, 'Unterbesetzung · 19:00–19:10']);
+
+  resolved.late = shift('15:00', '19:10');
+  assert.deepEqual(Array.from(coverage(employees, plan, day)), [true, '✓ Besetzung']);
+  assert.equal(calls.length, 6, 'each check resolves every employee again');
+  assert.equal(calls[0].isoDate, '2026-08-27');
+  assert.equal(calls[0].schedule, plan.schedule);
+  assert.equal(calls[0].absences, plan.absences);
+});
+
+test('persisted planning 2 edit is the entry used by coverage on the next render', () => {
+  const dayIso = '2026-08-27';
+  const employees = [{ id: 'opener' }, { id: 'early' }, { id: 'late' }];
+  const stored = new Map();
+  const renderedCoverage = [];
+  const renderedLateCells = [];
+  const editorFields = {
+    editType: { value: 'L' },
+    editStart: { value: '14:00' },
+    editEnd: { value: '19:00' },
+    editCheckout: { value: '19:00' },
+    editBranch: { value: '' }
+  };
+  const realResolution = loadScripts([
+    'holidays.js',
+    'time-utils.js',
+    'shift-rules.js',
+    'date-utils.js',
+    'shift-utils.js',
+    'status-utils.js',
+    'absences.js',
+    'day-resolution.js'
+  ]);
+  const context = vm.createContext({
+    TEST_PLAN: 'planning-2-test-plan',
+    PREVIEW_MASTER: 'planning-2-master',
+    active: () => true,
+    LIVE_PLAN: 'live-plan',
+    localStorage: {
+      getItem: (key) => stored.get(key) ?? null,
+      setItem: (key, value) => stored.set(key, value)
+    },
+    iso: (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    mins: (value) => {
+      const [hours, minutes] = value.split(':').map(Number);
+      return hours * 60 + minutes;
+    },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`,
+    getResolvedDayEntry: realResolution.getResolvedDayEntry,
+    getBusinessRequiredBreakMinutes: realResolution.getBusinessRequiredBreakMinutes,
+    getWorkedMinutesFromRange: realResolution.getWorkedMinutesFromRange,
+    document: { getElementById: (id) => editorFields[id] },
+    toast: () => {},
+    closeEditor: () => {}
+  });
+  context.planning2Data = {
+    readPlan: () => JSON.parse(stored.get('wochenplan_plan_v10') || '{}'),
+    readMaster: () => JSON.parse(stored.get('wochenplan_master_v10') || '{"employees":[]}'),
+    savePlan: value => stored.set('wochenplan_plan_v10', JSON.stringify(value))
+  };
+
+  vm.runInContext([
+    extractFunction('load'),
+    extractFunction('save'),
+    extractFunction('clone'),
+    extractFunction('getTestPlan'),
+    extractFunction('removeAbsenceDay'),
+    extractFunction('clearDay'),
+    extractFunction('putEntry'),
+    extractFunction('makeShift'),
+    extractFunction('resolvePlanDay'),
+    extractFunction('resolvedShiftTimes'),
+    extractFunction('evaluateResolvedDayCoverage'),
+    extractFunction('coverage'),
+    extractFunction('cell'),
+    extractFunction('shiftDayIso'),
+    extractFunction('previousRelevantWorkday'),
+    extractFunction('nextRelevantWorkday'),
+    extractFunction('carryoverRolePriority'),
+    extractFunction('planning2ResolvedWorkShift'),
+    extractFunction('rankCarryoverCandidates'),
+    extractFunction('updatePlanning2ShiftStart'),
+    extractFunction('applyPlanning2EarlyStartCarryover'),
+    extractFunction('closingWorkload'),
+    extractFunction('extendClosingShift'),
+    extractFunction('restoreClosingShift'),
+    extractFunction('alignPreviousClosingTeam'),
+    extractFunction('applyPlanning2ClosingAutofix'),
+    extractFunction('applyPlanning2SavedDayAutofixes'),
+    extractFunction('persist'),
+    extractFunction('saveCustom'),
+    `editing={eid:'late',dayIso:'${dayIso}'}`,
+    `render=()=>{const plan=getTestPlan(),day=new Date(2026,7,27),resolved=resolvePlanDay(plan,employees[2],day);renderedCoverage.push(Array.from(coverage(employees,plan,day)));renderedLateCells.push(Array.from(cell(resolved)))}`,
+    'this.api={getTestPlan,saveCustom}'
+  ].join(';'), context);
+  context.employees = employees;
+  context.renderedCoverage = renderedCoverage;
+  context.renderedLateCells = renderedLateCells;
+
+  stored.set('wochenplan_master_v10', JSON.stringify({ employees }));
+  stored.set('wochenplan_plan_v10', JSON.stringify({
+    schedule: {
+      [dayIso]: {
+        opener: { type: 'shift', start: '08:55', end: '19:10' },
+        early: { type: 'shift', start: '09:00', end: '18:00' },
+        late: { type: 'shift', status: 'work', code: 'L', shiftKey: 'L', mode: 'late', start: 'L', end: '14:00' }
+      }
+    },
+    absences: []
+  }));
+
+  vm.runInContext('render()', context);
+  assert.deepEqual(Array.from(renderedCoverage[0]), [false, 'Unterbesetzung · 19:00–19:10']);
+  const legacyResolved = realResolution.getResolvedDayEntry({
+    employee: employees[2],
+    isoDate: dayIso,
+    schedule: context.api.getTestPlan().schedule,
+    absences: [],
+    stateKey: 'schleswig-holstein'
+  });
+  assert.equal(legacyResolved.sourceEntry.start, 'L');
+  assert.equal(legacyResolved.sourceEntry.end, '14:00');
+
+  assert.equal(vm.runInContext("JSON.stringify(editing)", context), JSON.stringify({ eid: 'late', dayIso }));
+  assert.equal(vm.runInContext("document.getElementById('editStart').value", context), '14:00');
+  vm.runInContext("saveCustom()", context);
+
+  assert.equal(JSON.parse(stored.get('wochenplan_plan_v10')).schedule[dayIso].late.start, '14:00');
+  assert.equal(JSON.parse(stored.get('wochenplan_plan_v10')).schedule[dayIso].late.end, '19:10');
+  assert.deepEqual(Array.from(renderedLateCells[1]), ['14:00–19:10', 'L', 'shift']);
+  assert.deepEqual(Array.from(renderedCoverage[1]), [true, '✓ Besetzung']);
+});
+
+test('coverage excludes resolved non-working states including external help', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    vacation: { type: 'vacation', sourceEntry: { start: '09:00', end: '19:10' } },
+    sick: { type: 'sick', sourceEntry: { start: '09:00', end: '19:10' } },
+    external: { type: 'external-help', sourceEntry: { start: '09:00', end: '19:10' } }
+  };
+  const { coverage } = loadCoverage(resolved);
+  const employees = Object.keys(resolved).map((id) => ({ id }));
+
+  assert.deepEqual(
+    Array.from(coverage(employees, { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+    [false, 'Unterbesetzung · 9:00–19:10']
+  );
+});
+
+test('coverage prioritizes a missing 08:55 opener', () => {
+  const resolved = {
+    first: shift('09:00', '19:10'),
+    second: shift('09:00', '19:10')
+  };
+  const { coverage } = loadCoverage(resolved);
+
+  assert.deepEqual(
+    Array.from(coverage([{ id: 'first' }, { id: 'second' }], { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+    [false, 'Unterbesetzung · 8:55–9:00']
+  );
+});
+
+test('coverage identifies morning, afternoon, and evening understaffing', () => {
+  const cases = [
+    ['Vormittag', '09:00', '10:05', 'Unterbesetzung · 9:00–10:05'],
+    ['Nachmittag', '13:00', '14:05', 'Unterbesetzung · 13:00–14:05'],
+    ['Abend', '18:00', '19:10', 'Unterbesetzung · 19:00–19:10']
+  ];
+
+  for (const [section, gapStart, gapEnd, expected] of cases) {
+    const resolved = {
+      opener: shift('08:55', '19:10'),
+      beforeGap: shift('09:00', gapStart),
+      afterGap: shift(gapEnd, '19:10')
+    };
+    const { coverage } = loadCoverage(resolved);
+    assert.deepEqual(
+      Array.from(coverage(Object.keys(resolved).map((id) => ({ id })), { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+      [false, expected],
+      `${section} should be named in the warning`
+    );
+  }
+});
+
+test('coverage reports sufficient staffing for a fully covered day', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    second: shift('09:00', '19:10')
+  };
+  const { coverage } = loadCoverage(resolved);
+
+  assert.deepEqual(
+    Array.from(coverage([{ id: 'opener' }, { id: 'second' }], { schedule: {}, absences: [] }, new Date(2026, 7, 27))),
+    [true, '✓ Besetzung']
+  );
+});
+
+test('coverage enforces two real employees through 19:10 without the old tolerance', () => {
+  const day = new Date(2026, 3, 8);
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    second: shift('09:00', '19:00')
+  };
+  const { coverage } = loadCoverage(resolved);
+
+  assert.deepEqual(
+    Array.from(coverage(Object.keys(resolved).map((id) => ({ id })), { schedule: {}, absences: [] }, day)),
+    [false, 'Unterbesetzung · 19:00–19:10']
+  );
+});
+
+test('coverage tolerates a gap of exactly 60 minutes and flags longer afternoon gaps', () => {
+  const employees = [{ id: 'opener' }, { id: 'before' }, { id: 'after' }];
+  const day = new Date(2026, 7, 27);
+  for (const [gapEnd, expected] of [
+    ['14:00', [true, '✓ Besetzung']],
+    ['14:05', [false, 'Unterbesetzung · 13:00–14:05']]
+  ]) {
+    const { coverage } = loadCoverage({
+      opener: shift('08:55', '19:10'),
+      before: shift('09:00', '13:00'),
+      after: shift(gapEnd, '19:10')
+    });
+    assert.deepEqual(Array.from(coverage(employees, { schedule: {}, absences: [] }, day)), expected);
+  }
+});
+
+test('coverage returns every separate understaffed time span', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    morning: shift('10:05', '13:00'),
+    afternoon: shift('14:05', '19:10')
+  };
+  const { evaluate } = loadCoverage(resolved);
+  const result = evaluate(Object.values(resolved));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'Unterbesetzung · 9:00–10:05, 13:00–14:05');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.gaps)),
+    [
+      { kind: 'understaffing', start: 540, end: 605, required: 2 },
+      { kind: 'understaffing', start: 780, end: 845, required: 2 }
+    ]
+  );
+});
+
+test('a shift ending exactly at the gap start does not cover the gap', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    endingAtGap: shift('09:00', '13:00'),
+    startingAtGapEnd: shift('14:05', '19:10')
+  };
+  const { evaluate } = loadCoverage(resolved);
+  const result = evaluate(Object.values(resolved));
+
+  assert.equal(result.reason, 'Unterbesetzung · 13:00–14:05');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.gaps)), [
+    { kind: 'understaffing', start: 780, end: 845, required: 2 }
+  ]);
+});
+
+test('a shift starting exactly at the gap end closes the gap at that boundary', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    before: shift('09:00', '15:00'),
+    startingAtGapEnd: shift('16:05', '19:10')
+  };
+  const { evaluate } = loadCoverage(resolved);
+  const result = evaluate(Object.values(resolved));
+
+  assert.equal(result.reason, 'Unterbesetzung · 15:00–16:05');
+  assert.equal(result.gaps[0].end, 16 * 60 + 5);
+});
+
+test('vacation, sick leave, and time off do not cover a daytime gap', () => {
+  for (const type of ['vacation', 'sick', 'off']) {
+    const resolved = {
+      opener: shift('08:55', '19:10'),
+      before: shift('09:00', '13:00'),
+      after: shift('14:05', '19:10'),
+      absent: { type, sourceEntry: { type: 'shift', start: '13:00', end: '14:05' } }
+    };
+    const { evaluate } = loadCoverage(resolved);
+    assert.equal(evaluate(Object.values(resolved)).reason, 'Unterbesetzung · 13:00–14:05', type);
+  }
+});
+
+test('Saturday uses the same resolved-entry coverage check', () => {
+  const resolved = {
+    opener: shift('08:55', '19:10'),
+    before: shift('09:00', '15:00'),
+    after: shift('16:05', '19:10')
+  };
+  const { coverage } = loadCoverage(resolved);
+  const saturday = new Date(2026, 7, 29);
+
+  assert.equal(saturday.getDay(), 6);
+  assert.deepEqual(
+    Array.from(coverage(Object.keys(resolved).map(id => ({ id })), { schedule: {}, absences: [] }, saturday)),
+    [false, 'Unterbesetzung · 15:00–16:05']
+  );
+});
+
+test('candidate ranking excludes workers covering the gap and prioritizes useful edge changes', () => {
+  const context = vm.createContext({
+    mins: (value) => { const [hours, minutes] = value.split(':').map(Number); return hours * 60 + minutes; },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+  });
+  vm.runInContext([
+    extractFunction('resolvedShiftTimes'),
+    extractFunction('rankUnderstaffingCandidates'),
+    'this.rank=rankUnderstaffingCandidates'
+  ].join(';'), context);
+  const employees = [
+    { id: 'covering', name: 'Schon da', target: '30:00' },
+    { id: 'before', name: 'Davor', target: '30:00' },
+    { id: 'after', name: 'Danach', target: '30:00' },
+    { id: 'far', name: 'Weit davor', target: '30:00' },
+    { id: 'gfb', name: 'GFB', roleKey: 'GFB', target: '30:00' },
+    { id: 'vacation' }, { id: 'sick' }, { id: 'off' }, { id: 'holiday' }, { id: 'external' }
+  ];
+  const resolved = [
+    shift('09:00', '19:10'),
+    shift('09:00', '13:00'),
+    shift('14:05', '19:10'),
+    shift('09:00', '12:00'),
+    shift('14:05', '19:10'),
+    { type: 'vacation', sourceEntry: { type: 'shift', start: '09:00', end: '13:00' } },
+    { type: 'sick', sourceEntry: { type: 'shift', start: '14:05', end: '19:10' } },
+    { type: 'off', sourceEntry: { type: 'off' } },
+    { type: 'holiday', sourceEntry: { type: 'shift', start: '09:00', end: '13:00' } },
+    { type: 'external-help', sourceEntry: { type: 'external-help', start: '14:05', end: '19:10' } }
+  ];
+  const actual = { covering: 0, before: 31 * 60, after: 20 * 60, far: 0, gfb: 5 * 60 };
+  const targets = Object.fromEntries(employees.map(employee => [employee.id, 30 * 60]));
+  const gap = { kind: 'understaffing', start: 13 * 60, end: 14 * 60 + 5 };
+  const ranked = context.rank(employees, resolved, gap, actual, targets);
+
+  assert.deepEqual(Array.from(ranked, candidate => candidate.employeeId), ['after', 'gfb', 'before', 'far']);
+  assert.ok(!ranked.some(candidate => candidate.employeeId === 'covering'));
+  assert.deepEqual(JSON.parse(JSON.stringify(ranked[0])), {
+    employeeId: 'after', employeeName: 'Danach', shiftStart: '14:05', shiftEnd: '19:10',
+    proposedStart: '13:00', proposedEnd: '19:10', adjustmentDirection: 'advance-start', changeMinutes: 65,
+    weeklyActualMinutes: 1200, weeklyTargetMinutes: 1800, differenceMinutes: -600
+  });
+  assert.equal(ranked.find(candidate => candidate.employeeId === 'before').adjustmentDirection, 'extend-end');
+  assert.equal(ranked.find(candidate => candidate.employeeId === 'far').changeMinutes, 125);
+  assert.equal(ranked.find(candidate => candidate.employeeId === 'gfb').differenceMinutes, 0, 'GFB has no artificial weekly deficit');
+});
+
+test('candidate ranking is only available for general understaffing gaps', () => {
+  const context = vm.createContext({
+    mins: (value) => { const [hours, minutes] = value.split(':').map(Number); return hours * 60 + minutes; },
+    hm: (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+  });
+  vm.runInContext([
+    extractFunction('resolvedShiftTimes'), extractFunction('rankUnderstaffingCandidates'),
+    'this.rank=rankUnderstaffingCandidates'
+  ].join(';'), context);
+  const employee = [{ id: 'worker', target: '30:00' }];
+  const resolved = [shift('09:00', '13:00')];
+
+  assert.deepEqual(Array.from(context.rank(employee, resolved, { kind: 'opener', start: 535, end: 540 }, {}, {})), []);
+  assert.deepEqual(Array.from(context.rank(employee, resolved, { kind: 'closing', start: 1140, end: 1150 }, {}, {})), []);
+});

@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<title>Wochenplan</title>
+
+<meta name="theme-color" content="#ffffff">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="planning2-live.css">
+
+</head>
+
+
+<body>
+
+
+<header class="topbar compactTopbar no-print">
+
+<div class="titleLine">
+
+<div>
+<h1>Wochenplan</h1>
+<div class="small">Mo-Sa · Stammdaten + 5 Ansichten</div>
+</div>
+
+<div class="viewSwitch" id="viewSwitch">
+
+<button id="btnViewDay" class="viewBtn">
+Urlaub
+</button>
+
+<button id="btnViewWeek" class="viewBtn active">
+Wochenplan
+</button>
+
+<button id="btnViewMonth" class="viewBtn">
+Monat
+</button>
+
+<button id="btnViewOverview" class="viewBtn">
+Übersicht
+</button>
+
+
+<button id="btnViewMep" class="viewBtn">
+MEP-Tabelle
+</button>
+
+</div>
+</div>
+
+
+<div id="viewMetaLine" class="metaLine">
+
+<label>
+Woche vom
+<input id="weekFrom" type="date">
+</label>
+
+<label>
+bis
+<input id="weekTo" type="date">
+</label>
+
+<div class="weekNav">
+  <button id="btnPrevWeek" type="button">◀ Vorwoche</button>
+  <button id="btnCurrentWeek" type="button">Diese Woche</button>
+  <button id="btnNextWeek" type="button">Nächste Woche ▶</button>
+</div>
+
+<div class="miniStat">
+<span class="miniLabel">Woche</span>
+<strong id="weeklyHoursActual">0:00</strong>
+<span class="miniSub">/ 159:00</span>
+</div>
+
+
+<div class="miniStat">
+<span class="miniLabel">Rest / Über</span>
+<strong id="weeklyHoursRemaining">159:00</strong>
+<span id="weeklyHoursStatus" class="miniSub">
+Noch frei
+</span>
+</div>
+
+
+</div>
+
+
+
+<div id="topToolbar" class="toolbar compactToolbar">
+
+<button id="btnToggleTeam">
+Team ausblenden
+</button>
+
+<button id="btnSaveMaster">
+Stammdaten speichern
+</button>
+
+<div class="mobileMoreWrap">
+  <button id="btnMoreActions" type="button" class="mobileOnlyButton" aria-expanded="false" aria-controls="mobileMoreMenuPanel">
+    Mehr ▾
+  </button>
+  <div id="mobileMoreMenuPanel" class="mobileMoreMenu hidden" role="menu" aria-label="Weitere Aktionen">
+    <button type="button" data-forward-target="btnToggleTeam" role="menuitem">Team ein-/ausblenden</button>
+    <button type="button" data-forward-target="btnResetWeek" role="menuitem">Aktuelle Woche leeren</button>
+    <button type="button" data-forward-target="btnExportBackup" role="menuitem">Sicherung exportieren</button>
+    <button type="button" data-forward-target="btnImportBackup" role="menuitem">Sicherung importieren</button>
+    <button type="button" data-forward-target="btnExportPlanning2" role="menuitem">An Planung 2 übergeben</button>
+    <button type="button" data-forward-target="btnDarkMode" role="menuitem">Dark Mode wechseln</button>
+    <button type="button" data-forward-target="btnPrint" role="menuitem">Drucken / PDF</button>
+    <button type="button" data-forward-target="btnMepModeNormal" role="menuitem">MEP normal</button>
+    <button type="button" data-forward-target="btnMepModeAnonym" role="menuitem">MEP anonym</button>
+  </div>
+</div>
+
+<button id="btnResetWeek">
+Aktuelle Woche leeren
+</button>
+
+<button id="btnExportBackup" type="button">
+Sicherung exportieren
+</button>
+
+<button id="btnImportBackup" type="button">
+Sicherung importieren
+</button>
+
+<button id="btnExportPlanning2" type="button">
+An Planung 2 übergeben
+</button>
+
+<input id="backupFileInput" type="file" accept="application/json,.json" class="hidden">
+
+<span id="backupInfo" class="small"></span>
+<span id="saveStatus" class="saveStatus small" aria-live="polite"></span>
+  
+<button id="btnDarkMode">🌙</button>
+
+<button id="btnMepModeNormal" type="button" class="hidden">
+MEP normal
+</button>
+
+<button id="btnMepModeAnonym" type="button" class="hidden">
+MEP anonym
+</button>
+  
+<button id="btnPrint">
+Drucken / PDF
+</button>
+
+</div>
+
+</header>
+
+<section id="mobileErrorPanel" class="mobileErrorPanel hidden no-print" role="status" aria-live="assertive">
+  <div class="mobileErrorPanelHeader">
+    <strong>Runtime-Fehler</strong>
+    <button id="btnCloseMobileErrorPanel" type="button">Debug schließen</button>
+  </div>
+  <pre id="mobileErrorPanelText" class="mobileErrorPanelText">Keine Fehler erfasst.</pre>
+</section>
+
+
+<section id="teamSection" class="teamsetup no-print">
+
+<div class="sectionhead">
+
+<h2>Stammdaten</h2>
+
+<div class="small">
+Diese Daten bleiben erhalten, auch wenn du eine neue Woche startest
+</div>
+
+</div>
+
+<div class="teamActions">
+<button id="btnAddEmployee" type="button">Mitarbeiter hinzufügen</button>
+</div>
+
+<div id="teamList" class="teamlist"></div>
+
+</section>
+
+
+
+<section id="dayView" class="daynav hidden no-print">
+
+<div class="sectionhead">
+
+<h2>Urlaubsübersicht</h2>
+
+<div class="small">
+Jahresurlaub, genommene Tage und Resturlaub (Sonntage und Feiertage werden nicht als Urlaubstage abgezogen)
+</div>
+
+</div>
+
+<div class="tableWrap">
+
+<table id="vacationTable">
+
+<thead>
+<tr>
+<th>Name</th>
+<th>Anspruch</th>
+<th>genommen</th>
+<th>Rest</th>
+<th>Zeiträume</th>
+<th>Aktion</th>
+<th>Jan</th>
+<th>Feb</th>
+<th>Mär</th>
+<th>Apr</th>
+<th>Mai</th>
+<th>Jun</th>
+<th>Jul</th>
+<th>Aug</th>
+<th>Sep</th>
+<th>Okt</th>
+<th>Nov</th>
+<th>Dez</th>
+</tr>
+</thead>
+
+<tbody id="vacationTableBody"></tbody>
+
+</table>
+
+</div>
+
+</section>
+
+
+
+<section id="weekView" class="planning2Host no-print">
+<div id="planning2View" class="app">
+  <div id="planung2RuntimeStatus" class="runtimeStatus" role="status">Planung 2 wird initialisiert …</div>
+  <div class="top"><div><div class="eyebrow">PROTOTYP · PLANUNG 2</div><h1 id="title">Monat</h1></div><div class="nav"><button id="prev">◀</button><button id="next">▶</button></div></div>
+  <div class="summary" aria-label="Wochenkennzahlen"><div class="card"><span>TZ offen</span><strong id="tz">—</strong></div><div class="card card--hours"><span>Filialstunden · Woche</span><strong id="branchWeek">—</strong></div><div class="card card--coverage"><span>Grundbesetzung</span><strong id="coverage">—</strong></div></div>
+  <div id="baselineBar" class="baselineBar"></div><div class="tools"><span class="safeBadge">Produktive Plandaten</span></div>
+  <div id="weeks" class="weeks"></div>
+  <div class="table"><div class="scroll"><div id="grid"></div></div></div>
+  <div class="note">Zelle antippen = planen. Änderungen werden im gemeinsamen Plan gespeichert und sind auch im bisherigen Planer sichtbar.</div>
+</div>
+
+<div id="editorOverlay" class="overlay hidden" aria-hidden="true">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+    <div class="sheetHead"><div><h2 id="editorTitle">Schicht planen</h2><div id="editorSub" class="sheetSub"></div><div id="baselineDetail" class="baselineDetail" hidden></div></div><button id="closeEditor" class="closeBtn" type="button">✕</button></div>
+    <div class="quickGrid">
+      <button class="quick" data-quick="F3">F3</button><button class="quick" data-quick="F4">F4</button><button class="quick" data-quick="F5">F5</button><button class="quick" data-quick="F6">F6</button>
+      <button class="quick" data-quick="FO">FÖ</button><button class="quick" data-quick="G">G</button><button class="quick" data-quick="L">Late</button><button class="quick" data-quick="FLEX">Flex</button>
+      <button class="quick secondary" data-quick="FR">Frei</button><button class="quick secondary" data-quick="U">Urlaub</button><button class="quick secondary" data-quick="K">Krank</button><button class="quick secondary" data-quick="AH">AH</button>
+    </div>
+    <div class="fields">
+      <label class="field"><span>Typ</span><select id="editType"><option value="FLEX">Flex</option><option value="FO">FÖ</option><option value="G">G</option><option value="L">Late</option><option value="AH">AH</option></select></label>
+      <label class="field"><span>Abrechnung / Ende</span><select id="editCheckout"><option value="19:00">19:00</option><option value="19:10">19:10</option></select></label>
+      <label class="field"><span>Beginn</span><input id="editStart" type="time" step="300"></label>
+      <label class="field"><span>Ende</span><input id="editEnd" type="time" step="300"></label>
+      <label class="field full"><span>AH Zielfiliale</span><input id="editBranch" type="text" placeholder="z. B. Kiel"></label>
+    </div>
+    <div class="saveRow"><button id="deleteEntry" class="danger" type="button">Eintrag löschen</button><button id="saveCustom" class="primary" type="button">Speichern</button></div>
+    <div class="previewWarning">Planning 2 verwendet die zentrale Stammdatenpflege und den gemeinsamen Plan der normalen App.</div>
+  </div>
+</div>
+<div id="targetedSuggestionsOverlay" class="overlay hidden" aria-hidden="true">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="targetedSuggestionsTitle">
+    <div class="sheetHead"><div><h2 id="targetedSuggestionsTitle">💡 Vorschläge</h2><div id="targetedSuggestionsSub" class="sheetSub"></div></div><button id="closeTargetedSuggestions" class="closeBtn" type="button" aria-label="Vorschläge schließen">✕</button></div>
+    <div id="targetedSuggestionsList" class="targetedList" aria-live="polite"></div>
+  </div>
+</div>
+<div id="candidateDebugOverlay" class="overlay hidden" aria-hidden="true">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="candidateDebugTitle">
+    <div class="sheetHead"><div><h2 id="candidateDebugTitle">Planning-2-Alternativen</h2><div id="candidateDebugSub" class="sheetSub"></div></div><button id="closeCandidateDebug" class="closeBtn" type="button">✕</button></div>
+    <div id="candidateDebugList" class="candidateList"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+</section>
+
+<section id="legacyWeekView" class="overview hidden no-print" aria-hidden="true">
+
+<div class="sectionhead">
+
+<h2>Wochenplan</h2>
+
+<div class="small">
+Kompakte Tabellenansicht mit Dropdowns
+</div>
+
+</div>
+
+
+<div id="weekWarnings" class="weekWarningsBox"></div>
+
+
+<div id="legendCompact" class="legendCompact">
+
+- frei ·  
+F3 09-12 ·  
+F4 09-13 ·  
+F5 09-14 ·  
+F6 09-15 ·  
+G1 09-19:10 ·  
+L1-L4 mit Abrechnung ·  
+L1E-L4E ohne Abrechnung
+
+</div>
+
+
+
+<div class="tableWrap compactTableWrap">
+
+<table id="weekTable">
+
+<thead>
+
+<tr>
+<th>Name</th>
+<th>Mo</th>
+<th>Di</th>
+<th>Mi</th>
+<th>Do</th>
+<th>Fr</th>
+<th>Sa</th>
+<th>Ist</th>
+<th>Δ</th>
+<th>Soll</th>
+</tr>
+
+</thead>
+
+<tbody id="weekTableBody"></tbody>
+
+</table>
+
+</div>
+
+<div id="weekMobileCards" class="weekMobileCards" aria-live="polite"></div>
+
+</section>
+
+
+<section id="monthView" class="overview hidden no-print">
+
+  <div class="sectionhead">
+    <div class="monthHeader">
+  <button id="monthPrev">◀</button>
+  <h2 id="monthTitle">Monatsübersicht</h2>
+  <button id="monthNext">▶</button>
+</div>
+    <div class="small">
+      Zusatzansicht für Überblick und Monatsstunden
+    </div>
+  </div>
+
+  <div class="tableWrap compactTableWrap">
+    <div id="monthViewContent"></div>
+  </div>
+
+</section>
+
+
+<section id="overviewView" class="overview hidden no-print">
+
+  <div class="sectionhead month-overview-panel">
+    <div class="month-overview-header">
+      <div class="month-overview-title-row">
+        <button id="overviewMonthPrev" class="month-nav-btn" type="button" aria-label="Vorheriger Monat">◀</button>
+        <h2 id="overviewMonthTitle">Monatsübersicht</h2>
+        <button id="overviewMonthNext" class="month-nav-btn" type="button" aria-label="Nächster Monat">▶</button>
+      </div>
+    </div>
+    <div class="month-overview-actions">
+      <div class="toolbarRow">
+        <button id="btnOverviewUpload" type="button" class="btnSecondary">Übersicht hochladen</button>
+      </div>
+      <div class="revenue-editor internalOnly">
+        <label class="revenue-editor-label" for="overviewSalesDate">Interner Tagesumsatz</label>
+        <div class="revenue-week-picker">
+          <label for="overviewSalesWeekSelect">Wochenabschnitt</label>
+          <select id="overviewSalesWeekSelect" class="revenue-week-select" aria-label="Wochenabschnitt wählen"></select>
+          <div id="overviewSalesDayChipList" class="revenue-day-chip-list" role="group" aria-label="Tag auswählen"></div>
+        </div>
+        <div class="revenue-editor-row">
+          <div class="revenue-editor-field">
+            <label for="overviewSalesDate">Datum</label>
+            <input id="overviewSalesDate" type="date" aria-label="Datum für internen Umsatz">
+          </div>
+          <div class="revenue-editor-field">
+            <label for="overviewSalesAmount">Umsatz in €</label>
+            <input id="overviewSalesAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Umsatz in €" aria-label="Umsatz in Euro">
+          </div>
+        </div>
+        <div class="revenue-editor-buttons">
+          <button id="btnOverviewSalesSave" type="button" class="btnPrimary">Speichern</button>
+          <button id="btnOverviewSalesDelete" type="button" class="btnGhost">Löschen</button>
+        </div>
+        <div id="overviewSalesSaveStatus" class="revenue-save-status" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="small">
+      Monatsüberblick in Wochenabschnitten mit Wochenkennzahlen (Mo-Sa)
+    </div>
+  </div>
+
+  <div class="tableWrap compactTableWrap">
+    <div id="overviewMonthContent"></div>
+  </div>
+
+</section>
+
+
+<section id="mepTemplateView" class="overview hidden no-print">
+  <div class="sectionhead">
+    <div class="monthHeader mepMonthHeader">
+      <button id="mepMonthPrev" type="button" aria-label="Vorheriger Monat">◀</button>
+      <div class="mepMonthHeaderText">
+        <h2>Mitarbeiter-Einsatz-Planung (MEP)</h2>
+        <div id="mepMonthTitle" class="small">Monatsansicht</div>
+      </div>
+      <button id="mepMonthNext" type="button" aria-label="Nächster Monat">▶</button>
+    </div>
+    <div class="small">Formularansicht nach MEP-Vorlage (DIN A4 Querformat)</div>
+  </div>
+
+  <div id="mepTemplatePages" class="mepTplPages"></div>
+
+  <template id="mepTemplateSheetTemplate">
+    <div class="mepTplSheet">
+      <div class="mepTplSheetInner">
+        <div class="mepTplHeader">
+          <div class="mepTplHeaderTopRow">
+            <div class="mepTplTitleBar">Mitarbeiter-Einsatz-Planung (MEP)</div>
+            <div class="mepTplBranchBox">
+              <span class="mepTplBranchLabel">Filiale:</span>
+              <span class="mepTplBranchField"></span>
+            </div>
+          </div>
+
+          <div class="mepTplMeta">
+            <div class="mepTplMetaDateRow">
+              <div class="mepTplMetaField mepTplMetaMonth">
+                <span class="mepTplMetaLabel">Monat / Jahr</span>
+                <span class="mepTplWriteLine"><span data-mep-month-year></span></span>
+              </div>
+              <div class="mepTplMetaField mepTplMetaFrom">
+                <span class="mepTplMetaLabel">Woche vom:</span>
+                <span class="mepTplWriteLine"><span data-mep-week-from></span></span>
+              </div>
+              <div class="mepTplMetaField mepTplMetaTo">
+                <span class="mepTplMetaLabel">bis:</span>
+                <span class="mepTplWriteLine"><span data-mep-week-to></span></span>
+              </div>
+              <div class="mepTplMetaArchive">Aufbewahrung in der Filiale: 2 Jahre</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tableWrap mepTplWrap">
+          <div class="mepTplWrapInner">
+            <table class="mepTplTable">
+              <colgroup>
+                <col class="mepTplCol mepTplCol--employee">
+                <col class="mepTplCol mepTplCol--role">
+                <col class="mepTplCol mepTplCol--target">
+                <col class="mepTplCol mepTplCol--metric">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--day">
+                <col class="mepTplCol mepTplCol--summary">
+                <col class="mepTplCol mepTplCol--summary">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th rowspan="3" class="mepTplColEmployee">Name, Vorname</th>
+                  <th rowspan="3" class="mepTplColRole">Funktion</th>
+                  <th rowspan="3" class="mepTplColTarget">Plan / Woche</th>
+                  <th class="mepTplColMetric">Wochentag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--mon">Montag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--tue">Dienstag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--wed">Mittwoch</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--thu">Donnerstag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--fri mepTplCellSeparator">Freitag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--sat mepTplCellSeparator">Samstag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--sun mepTplCellBeforeSummary">Sonntag</th>
+                  <th rowspan="3" class="mepTplSummaryHeader mepTplSummaryHeaderWeek">Summe / Woche</th>
+                  <th rowspan="3" class="mepTplSummaryHeader mepTplSummaryHeaderMonth">Summe / Monat</th>
+                </tr>
+                <tr>
+                  <th class="mepTplColMetric">Datum</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--mon"><span class="mepTplHeaderDate" data-mep-date-index="0"></span></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--tue"><span class="mepTplHeaderDate" data-mep-date-index="1"></span></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--wed"><span class="mepTplHeaderDate" data-mep-date-index="2"></span></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--thu"><span class="mepTplHeaderDate" data-mep-date-index="3"></span></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--fri mepTplCellSeparator"><span class="mepTplHeaderDate" data-mep-date-index="4"></span></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--sat mepTplCellSeparator"><span class="mepTplHeaderDate" data-mep-date-index="5"></span></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--sun mepTplCellBeforeSummary"><span class="mepTplHeaderDate" data-mep-date-index="6"></span></th>
+                </tr>
+                <tr>
+                  <th class="mepTplColMetric">Warentag</th>
+                  <th class="mepTplDayHeader mepTplDayHeader--mon"></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--tue"></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--wed"></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--thu"></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--fri mepTplCellSeparator"></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--sat mepTplCellSeparator"></th>
+                  <th class="mepTplDayHeader mepTplDayHeader--sun mepTplCellBeforeSummary"></th>
+                </tr>
+              </thead>
+              <tbody class="mepTemplateBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="mepTplFooter" aria-label="MEP Formularhinweise">
+          <div class="mepTplFooterGrid">
+            <div class="mepTplFooterBlock mepTplFooterBlock--pause">
+              <span class="mepTplFooterLabel">Pausenzeiten:</span>
+              <div class="mepTplFooterPauseValues">
+                <span class="mepTplFooterText mepTplFooterPauseValue mepTplFooterPauseValue--short">bis 6 Stunden ; keine Pause</span>
+                <span class="mepTplFooterText mepTplFooterPauseValue mepTplFooterPauseValue--long">mehr als 6 Stunden ; 60 Minuten</span>
+              </div>
+            </div>
+            <div class="mepTplFooterBlock mepTplFooterBlock--absence">
+              <span class="mepTplFooterLabel">Abwesenheiten:</span>
+              <div class="mepTplFooterAbsenceColumn mepTplFooterAbsenceColumn--left">
+                <span class="mepTplFooterText">Feiertag</span>
+                <span class="mepTplFooterText">Freizeit</span>
+              </div>
+              <div class="mepTplFooterAbsenceColumn mepTplFooterAbsenceColumn--right">
+                <span class="mepTplFooterText">Krankheit (AU-Bescheinigung)</span>
+                <span class="mepTplFooterText">Schule (Führungsnachwuchskraft)</span>
+              </div>
+            </div>
+            <div class="mepTplFooterBlock mepTplFooterBlock--vacation">
+              <span class="mepTplFooterLabel mepTplFooterLabel--vacation">Urlaub</span>
+            </div>
+            <div class="mepTplFooterBlock mepTplFooterBlock--presence">
+              <span class="mepTplFooterLabel">Anwesenheiten:</span>
+              <span class="mepTplFooterText mepTplFooterPresenceText">Arbeitszeitbeginn bis Arbeitszeitende inkl. Pausenzeiten und die Tagesstunden eintragen. Am Ende der Woche: wöchentliche und monatliche Summe eintragen.</span>
+            </div>
+            <div class="mepTplStand">Stand: Oktober 2014</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+</section>
+
+<div id="manualMonthDialogOverlay" class="dialogOverlay hidden no-print" aria-hidden="true">
+  <div
+    class="dialogBox dialogBoxWide"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="manualMonthDialogTitle"
+  >
+    <h3 id="manualMonthDialogTitle">Monats-Iststunden</h3>
+    <div class="manualMonthDialogTableWrap">
+      <table class="manualMonthTable">
+        <thead>
+          <tr>
+            <th>Monat (YYYY-MM)</th>
+            <th>Iststunden (HH:MM)</th>
+            <th>Löschen</th>
+          </tr>
+        </thead>
+        <tbody id="manualMonthRows"></tbody>
+      </table>
+    </div>
+    <label class="manualMonthBulkLabel" for="manualMonthBulkInput">
+      Bulk-Paste (pro Zeile: YYYY-MM HH:MM)
+    </label>
+    <textarea id="manualMonthBulkInput" class="manualMonthBulkInput" rows="6" placeholder="2026-01 154:30&#10;2026-02 148:00"></textarea>
+    <div id="manualMonthValidation" class="manualMonthValidation" aria-live="polite"></div>
+    <div class="dialogActions dialogActionsSpread">
+      <div class="dialogActions">
+        <button id="btnManualMonthAddRow" type="button">Monat hinzufügen</button>
+        <button id="btnManualMonthApplyBulk" type="button">Bulk übernehmen</button>
+      </div>
+      <div class="dialogActions">
+        <button id="btnManualMonthCancel" type="button">Abbrechen</button>
+        <button id="btnManualMonthSave" type="button">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="shiftDialogOverlay" class="dialogOverlay hidden no-print" aria-hidden="true">
+  <div class="dialogBox" role="dialog" aria-modal="true" aria-labelledby="shiftDialogTitle">
+    <h3 id="shiftDialogTitle">Schicht auswählen</h3>
+
+    <div id="shiftDialogLateFields" class="dialogFields hidden">
+      <label>
+        Startzeit
+        <select id="shiftDialogLateStart">
+          <option value="13:00">13:00</option>
+          <option value="14:00">14:00</option>
+          <option value="15:00">15:00</option>
+          <option value="16:00">16:00</option>
+        </select>
+      </label>
+
+      <label>
+        Abrechnung
+        <select id="shiftDialogLateCheckout">
+          <option value="yes">mit Abrechnung (bis 19:10)</option>
+          <option value="no">ohne Abrechnung (bis 19:00)</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="shiftDialogFullFields" class="dialogFields hidden">
+      <label>
+        Abrechnung
+        <select id="shiftDialogFullCheckout">
+          <option value="yes">mit Abrechnung (bis 19:10)</option>
+          <option value="no">ohne Abrechnung (bis 19:00)</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="shiftDialogFlexFields" class="dialogFields hidden">
+      <label>
+        Beginn
+        <div class="timeQuarterPicker">
+          <select id="shiftDialogFlexStartHour" aria-label="Flex Beginn Stunde"></select>
+          <span>:</span>
+          <select id="shiftDialogFlexStartMinute" aria-label="Flex Beginn Minute"></select>
+        </div>
+      </label>
+
+      <label>
+        Ende
+        <div class="timeQuarterPicker">
+          <select id="shiftDialogFlexEndHour" aria-label="Flex Ende Stunde"></select>
+          <span>:</span>
+          <select id="shiftDialogFlexEndMinute" aria-label="Flex Ende Minute"></select>
+        </div>
+      </label>
+    </div>
+
+    <div id="shiftDialogFoFields" class="dialogFields hidden">
+      <label>
+        Startzeit
+        <input id="shiftDialogFoStart" type="time" value="08:55" readonly>
+      </label>
+
+      <label>
+        Endzeit
+        <select id="shiftDialogFoEnd"></select>
+      </label>
+
+      <label>
+        Abrechnung
+        <select id="shiftDialogFoCheckout">
+          <option value="no">ohne Kasse</option>
+          <option value="yes">mit Kasse bis 19:10</option>
+        </select>
+      </label>
+    </div>
+        <div id="shiftDialogAbsenceFields" class="dialogFields hidden">
+      <label>
+        Status
+        <select id="shiftDialogAbsenceType">
+          <option value="vacation">Urlaub</option>
+          <option value="sick">Krank</option>
+        </select>
+      </label>
+
+      <label>
+        Von
+        <input id="shiftDialogAbsenceFrom" type="date">
+      </label>
+
+      <label>
+        Bis
+        <input id="shiftDialogAbsenceTo" type="date">
+      </label>
+    </div>
+
+    <div id="shiftDialogExternalHelpFields" class="dialogFields hidden">
+      <label>
+        Zielfiliale
+        <input id="shiftDialogExternalHelpBranch" type="text" placeholder="z. B. Kiel">
+      </label>
+
+      <label>
+        Beginn
+        <div class="timeQuarterPicker">
+          <select id="shiftDialogExternalHelpStartHour" aria-label="Aushilfe Beginn Stunde"></select>
+          <span>:</span>
+          <select id="shiftDialogExternalHelpStartMinute" aria-label="Aushilfe Beginn Minute"></select>
+        </div>
+      </label>
+
+      <label>
+        Ende
+        <div class="timeQuarterPicker">
+          <select id="shiftDialogExternalHelpEndHour" aria-label="Aushilfe Ende Stunde"></select>
+          <span>:</span>
+          <select id="shiftDialogExternalHelpEndMinute" aria-label="Aushilfe Ende Minute"></select>
+        </div>
+      </label>
+
+      <label>
+        Dauer (berechnet)
+        <input id="shiftDialogExternalHelpDuration" type="time" step="900" readonly>
+      </label>
+    </div>
+
+    <div class="dialogActions">
+      <button id="shiftDialogCancel" type="button">Abbrechen</button>
+      <button type="button" id="shiftDialogDelete">Eintrag löschen</button>
+      <button id="shiftDialogSave" type="button">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div
+  id="monthFallbackOverlay"
+  class="dialogOverlay monthFallbackOverlay hidden no-print"
+  aria-hidden="true"
+>
+  <div
+    id="monthFallbackSheet"
+    class="dialogBox monthFallbackSheet"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="monthFallbackTitle"
+    aria-label="Schichtauswahl für Monatsansicht"
+  >
+    <h3 id="monthFallbackTitle">Schicht wählen</h3>
+    <div id="monthFallbackOptions" class="monthFallbackOptions" aria-label="Verfügbare Optionen"></div>
+    <button id="monthFallbackCancel" class="monthFallbackCancel" type="button" aria-label="Auswahldialog schließen">Schließen</button>
+  </div>
+</div>
+
+<!-- Scripts -->
+<!--
+  Reihenfolge ist absichtlich linear (klassische Scripts, kein type="module"): 
+  1) Basis-Konstanten/Utilities (version, holidays, shift/time/date/status)
+  2) Domänen-Logik (contracts, absences, vacation, day/month engine)
+  3) View-Layer (day/week/mep/month)
+  4) Externe Libs für Export (html2canvas + jsPDF)
+  5) App-Bootstrap (app.js) zuletzt, weil hier auf globale Helper aus den vorherigen Dateien zugegriffen wird.
+
+  Kollisionsschutz für globale Helper-Namen:
+  - Lokal:   node tools/check-global-helper-collisions.js
+  - CI:      .github/workflows/global-helper-collision-check.yml
+-->
+
+<script src="./version.js?v=2026-08-19-1"></script>
+<script src="./holidays.js?v=2026-08-19-1"></script>
+<script src="./time-utils.js?v=2026-08-19-1"></script>
+<script src="./employee-availability.js?v=2026-08-30-1"></script>
+<script src="./shift-rules.js?v=2026-08-19-1"></script>
+<script src="./date-utils.js?v=2026-08-19-1"></script>
+<script src="./shift-utils.js?v=2026-08-19-1"></script>
+<script src="./status-utils.js?v=2026-08-19-1"></script>
+<script src="./contract-models.js?v=2026-08-19-1"></script>
+<script src="./absences.js?v=2026-08-19-1"></script>
+<script src="./planning2-domain-helpers.js?v=2026-08-31-1"></script>
+<script src="./planning2-carryover.js?v=2026-09-06-1"></script>
+<script src="./planning2-mutation-packages.js?v=2026-09-06-1"></script>
+<script src="./planning2-targeted-suggestions.js?v=2026-09-06-1"></script>
+<script src="./planning2-data-adapter.js?v=2026-09-06-1"></script>
+<script src="./vacation-utils.js?v=2026-08-19-1"></script>
+<script src="./day-resolution.js?v=2026-08-19-1"></script>
+<script src="./month-engine.js?v=2026-08-19-1"></script>
+<script src="./day-view.js?v=2026-08-19-1"></script>
+<script src="./week-view.js?v=2026-08-19-1"></script>
+<script src="./mep-view.js?v=2026-08-19-1"></script>
+<script src="./month-view.js?v=2026-08-19-1"></script>
+<script src="./balance-utils.js?v=2026-08-19-1"></script>
+<script src="./monthly-plan-baselines.js?v=2026-08-29-1"></script>
+<script src="./backup-utils.js?v=2026-08-19-1"></script>
+<script src="./manual-month-utils.js?v=2026-08-19-1"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+window.WOCHENPLAN_DRIVE_CONFIG = {
+  enabled: false,
+  folderId: "",
+  clientId: "",
+  scope: "https://www.googleapis.com/auth/drive"
+};
+</script>
+<script src="./pdf-export.js?v=2026-08-19-1"></script>
+<script src="./app-orchestration.js?v=2026-08-19-1"></script>
+<script src="./planning2-live.js?v=2026-09-06-1"></script>
+<script src="./app.js?v=2026-09-06-1"></script>
+
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", async () => {
+    try {
+      const registration = await navigator.serviceWorker.register("./sw.js");
+
+      registration.addEventListener("updatefound", () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+
+        newWorker.addEventListener("statechange", () => {
+          if (
+            newWorker.state === "installed" &&
+            navigator.serviceWorker.controller
+          ) {
+            newWorker.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+
+      let refreshing = false;
+
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+    } catch (err) {
+      console.log("SW Fehler", err);
+    }
+  });
+}
+</script>
+
+
+</body>
+</html>

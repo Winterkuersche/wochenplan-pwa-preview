@@ -1,0 +1,8 @@
+{
+  "name": "wochenplan-pwa",
+  "private": true,
+  "scripts": {
+    "check:sw": "node tools/check-sw-precache-assets.js",
+    "check:globals": "node tools/check-global-helper-collisions.js"
+  }
+}
